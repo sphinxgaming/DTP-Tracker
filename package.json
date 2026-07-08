@@ -1,0 +1,14 @@
+{
+  "name": "dtp-web-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dubai-time web replacement for the DTP Excel/VBA tracker.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DTP Time Tracker</title>
+    <link rel="stylesheet" href="/styles.css?v=20260527-break-eta">
+    <link rel="stylesheet" href="/servicenow-validation.css?v=20260708-servicenow-validation">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">FTI Consulting</p>
+        <h1>DTP Time Tracker <span>Web 1.0</span></h1>
+      </div>
+      <div class="header-clock">
+        <span id="headerDubaiTime">--</span>
+        <small>Dubai (DXB) time</small>
+      </div>
+    </header>
+
+    <main class="shell">
+      <div class="workspace-layout">
+        <div class="workbench">
+          <section class="tracker-grid" aria-label="Tracker controls">
+            <article class="panel work-panel">
+              <div class="panel-top">
+                <label for="budgetInput">Time budget</label>
+                <div class="input-row">
+                  <input id="budgetInput" type="text" inputmode="decimal" value="3" aria-label="Work budget">
+                  <button id="updateBudgetBtn" type="button">Update</button>
+                </div>
+              </div>
+              <div id="workTimer" class="timer-display">03:00:00</div>
+              <div class="button-grid">
+                <button id="reviewBtn" type="button" class="success">Review time</button>
+                <button id="startBtn" type="button">Start</button>
+                <button id="endBtn" type="button">End Job</button>
+                <button id="resetBtn" type="button">Reset All</button>
+                <span id="reviewTimer" class="review-display">00:00</span>
+                <button id="pauseBtn" type="button" title="Use Pause only when your current job is interrupted for review or quality checking. For normal breaks, use Break or Add break.">Pause</button>
+              </div>
+            </article>
+
+            <article class="panel break-panel">
+              <div class="panel-top">
+                <label for="breakBudgetInput">Remaining break</label>
+                <div class="input-row">
+                  <input id="breakBudgetInput" type="text" inputmode="decimal" value="60min" aria-label="Break budget">
+                  <button id="saveBreakBtn" type="button">Save</button>
+                </div>
+              </div>
+              <div id="breakTimer" class="timer-display">01:00:00</div>
+              <div class="two-buttons">
+                <button id="breakBtn" type="button">Break</button>
+                <button id="stopBreakBtn" type="button">Stop Break</button>
+              </div>
+              <div class="planned-break">
+                <label>
+                  Start DXB
+                  <select id="breakStartSelect" aria-label="Break start in Dubai time"></select>
+                </label>
+                <label>
+                  End DXB
+                  <select id="breakEndSelect" aria-label="Break end in Dubai time"></select>
+                </label>
+                <button id="plannedBreakBtn" type="button">Add break</button>
+              </div>
+              <div id="plannedBreakLabel" class="planned-break-label">No planned break</div>
+            </article>
+
+            <article class="panel clock-panel">
+              <div class="eta-panel">
+                <span>Expected finish (DXB)</span>
+                <strong id="etaClock">--</strong>
+              </div>
+              <div class="viewer-time">
+                <label for="timezoneSelect">Viewer time</label>
+                <select id="timezoneSelect" aria-label="Viewer timezone"></select>
+                <span id="viewerClock">--</span>
+              </div>
+              <div class="state-pill" id="statePill">Idle</div>
+            </article>
+          </section>
+
+          <section class="intake-band" aria-label="Job intake">
+            <div>
+              <label for="jobInput">Job details</label>
+              <input id="jobInput" type="text" placeholder="DTP0030748 / Anthony / 4 Slides / 1PM">
+            </div>
+            <button id="reviewSubmitBtn" type="button">Add + Review</button>
+          </section>
+
+          <section class="table-tools" aria-label="Filters and export">
+            <div class="filters">
+              <label>
+                Search
+                <input id="searchInput" type="search" placeholder="request, client, deadline">
+              </label>
+              <label>
+                From
+                <input id="dateFromFilter" type="date">
+              </label>
+              <label>
+                To
+                <input id="dateToFilter" type="date">
+              </label>
+              <label>
+                Category
+                <select id="categoryFilter"></select>
+              </label>
+            </div>
+            <div class="export-actions">
+              <button id="addManualRowBtn" type="button">Add manual row</button>
+              <button id="selectVisibleBtn" type="button">Select visible</button>
+              <button id="deleteSelectedBtn" type="button">Delete selected</button>
+              <input id="importInput" type="file" hidden accept=".csv,.tsv,.txt,.xlsx,.xlsm,.docx,.html,.htm">
+              <button id="importBtn" type="button">Import old data</button>
+              <button id="exportBtn" type="button">Generate Timesheet Word</button>
+            </div>
+          </section>
+
+          <section class="table-wrap" aria-label="Task log">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date worked</th>
+                  <th>Request #</th>
+                  <th># Worked Hours</th>
+                  <th>Worked mins</th>
+                  <th># of slides</th>
+                  <th>Category of work</th>
+                  <th>Relevant Client</th>
+                  <th>Deadline</th>
+                  <th>Start</th>
+                  <th>Finished</th>
+                  <th>Break</th>
+                  <th>Select</th>
+                </tr>
+              </thead>
+              <tbody id="taskRows">
+                <tr>
+                  <td colspan="12" class="empty">Loading tracker...</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+
+        <aside class="dashboard-panel" aria-label="Data dashboard">
+          <div class="dashboard-head">
+            <span>Dashboard</span>
+            <strong id="dashboardRange">Visible data</strong>
+          </div>
+          <div class="metric-grid">
+            <div>
+              <span>Rows</span>
+              <strong id="dashboardJobCount">0</strong>
+            </div>
+            <div>
+              <span>Hours</span>
+              <strong id="dashboardHours">00:00</strong>
+            </div>
+            <div>
+              <span>Mins</span>
+              <strong id="dashboardMins">0</strong>
+            </div>
+          </div>
+          <section class="chart-card overtime-card">
+            <h2>Overtime overview</h2>
+            <div class="overtime-metrics">
+              <div>
+                <span>OT rows</span>
+                <strong id="dashboardOtRows">0</strong>
+              </div>
+              <div>
+                <span>OT hours</span>
+                <strong id="dashboardOtHours">00:00</strong>
+              </div>
+              <div>
+                <span>OT days</span>
+                <strong id="dashboardOtDayCount">0</strong>
+              </div>
+            </div>
+            <div id="dashboardOtDays" class="overtime-days"></div>
+          </section>
+          <section class="chart-card">
+            <h2>Category hours</h2>
+            <div id="categoryBars" class="category-bars"></div>
+          </section>
+          <section class="chart-card">
+            <h2>Hours share</h2>
+            <div class="pie-wrap">
+              <div id="categoryPie" class="pie-chart"></div>
+              <div id="pieLegend" class="pie-legend"></div>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <datalist id="categoryOptions"></datalist>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js?v=20260527-break-eta" defer></script>
+    <script src="/servicenow-validation.js?v=20260708-servicenow-validation" defer></script>
+  </body>
+</html>
