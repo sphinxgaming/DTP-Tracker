@@ -44,7 +44,19 @@ If your Render tracker already contains newer rows, update the files in the same
 
 `data/tracker.seed.json` is only copied when the deployed disk has no `tracker.json` yet. A redeploy on the same service will continue using the saved records already on its disk.
 
-The seed in the supplied May 27, 2026 deployment package was captured from the completed live tracker after the break ended and includes records through May 27, 2026.
+For this July 2026 package, `data/tracker.seed.json` was refreshed from the live tracker and includes records through July 7, 2026.
+
+## Optional ServiceNow Validation Env Vars
+
+The `Validate ServiceNow` button can run automatic read-only ServiceNow checks only when Render has ServiceNow API settings. Add these as Render environment variables, not GitHub code:
+
+- `SERVICENOW_INSTANCE_URL`
+- `SERVICENOW_REQUEST_TABLE`
+- `SERVICENOW_USER` and `SERVICENOW_PASSWORD`, or `SERVICENOW_BEARER_TOKEN`
+- `SERVICENOW_CATEGORY_FIELD` if different from `u_graphic_design_category`
+- `SERVICENOW_SLIDES_FIELD` if different from `u_number_of_slides`
+- `SERVICENOW_REPORTING_TABLE` and `SERVICENOW_REPORTING_PARENT_FIELD` for Bryan production-minute validation
+- `SERVICENOW_REPORTING_MINUTES_FIELD`, `SERVICENOW_REPORTING_PRODUCTION_FIELD`, and `SERVICENOW_PRODUCTION_NAME` if the defaults do not match your ServiceNow field names
 
 ## Privacy Note
 

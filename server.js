@@ -15,6 +15,27 @@ const DB_BACKUP_FILE = `${DB_FILE}.bak`;
 const SEED_DB_FILE = process.env.SEED_DB_FILE || path.join(ROOT, "data", "tracker.seed.json");
 const TEMPLATE_FILE = path.join(PUBLIC_DIR, "timesheet-template.docx");
 const DUBAI_TZ = "Asia/Dubai";
+const SERVICE_NOW_BATCH_LIMIT = 300;
+
+const SERVICE_NOW_ENV = {
+  instanceUrl: envValue("SERVICENOW_INSTANCE_URL", "SN_INSTANCE_URL"),
+  username: envValue("SERVICENOW_USER", "SN_USER"),
+  password: envValue("SERVICENOW_PASSWORD", "SN_PASSWORD"),
+  bearerToken: envValue("SERVICENOW_BEARER_TOKEN", "SN_BEARER_TOKEN"),
+  cookie: envValue("SERVICENOW_COOKIE", "SN_COOKIE"),
+  requestTable: envValue("SERVICENOW_REQUEST_TABLE", "SN_REQUEST_TABLE"),
+  numberField: envValue("SERVICENOW_NUMBER_FIELD", "SN_NUMBER_FIELD") || "number",
+  categoryField: envValue("SERVICENOW_CATEGORY_FIELD", "SN_CATEGORY_FIELD") || "u_graphic_design_category",
+  slidesField: envValue("SERVICENOW_SLIDES_FIELD", "SN_SLIDES_FIELD") || "u_number_of_slides",
+  requestQueryExtra: envValue("SERVICENOW_REQUEST_QUERY_EXTRA", "SN_REQUEST_QUERY_EXTRA"),
+  reportingTable: envValue("SERVICENOW_REPORTING_TABLE", "SN_REPORTING_TABLE"),
+  reportingParentField: envValue("SERVICENOW_REPORTING_PARENT_FIELD", "SN_REPORTING_PARENT_FIELD"),
+  reportingParentMode: (envValue("SERVICENOW_REPORTING_PARENT_MODE", "SN_REPORTING_PARENT_MODE") || "sys_id").toLowerCase(),
+  reportingProductionField: envValue("SERVICENOW_REPORTING_PRODUCTION_FIELD", "SN_REPORTING_PRODUCTION_FIELD") || "u_production",
+  reportingMinutesField: envValue("SERVICENOW_REPORTING_MINUTES_FIELD", "SN_REPORTING_MINUTES_FIELD") || "u_production_time_in_mins",
+  reportingQueryExtra: envValue("SERVICENOW_REPORTING_QUERY_EXTRA", "SN_REPORTING_QUERY_EXTRA"),
+  productionName: envValue("SERVICENOW_PRODUCTION_NAME", "SN_PRODUCTION_NAME") || "Bryan Logapo"
+};
 
 const CATEGORIES = [
   "Formatting",
@@ -141,6 +162,14 @@ async function saveDb(db) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function envValue(...names) {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value !== undefined && String(value).trim() !== "") return String(value).trim();
+  }
+  return "";
 }
 
 function audit(db, action, detail = {}) {
@@ -1211,6 +1240,287 @@ function crc32(buffer) {
   return (crc ^ -1) >>> 0;
 }
 
+function serviceNowConfigStatus() {
+  const missing = [];
+  if (!SERVICE_NOW_ENV.instanceUrl) missing.push("SERVICENOW_INSTANCE_URL");
+  if (!SERVICE_NOW_ENV.requestTable) missing.push("SERVICENOW_REQUEST_TABLE");
+  if (!SERVICE_NOW_ENV.bearerToken && !SERVICE_NOW_ENV.cookie && !(SERVICE_NOW_ENV.username && SERVICE_NOW_ENV.password)) {
+    missing.push("SERVICENOW_USER/SERVICENOW_PASSWORD or SERVICENOW_BEARER_TOKEN");
+  }
+
+  const warnings = [];
+  if (!SERVICE_NOW_ENV.reportingTable || !SERVICE_NOW_ENV.reportingParentField) {
+    warnings.push("Production minutes validation is skipped until SERVICENOW_REPORTING_TABLE and SERVICENOW_REPORTING_PARENT_FIELD are set.");
+  }
+
+  return {
+    configured: missing.length === 0,
+    missing,
+    warnings,
+    requestTable: Boolean(SERVICE_NOW_ENV.requestTable),
+    reportingTable: Boolean(SERVICE_NOW_ENV.reportingTable && SERVICE_NOW_ENV.reportingParentField)
+  };
+}
+
+function serviceNowBaseUrl() {
+  return SERVICE_NOW_ENV.instanceUrl.replace(/\/+$/, "");
+}
+
+function serviceNowHeaders() {
+  const headers = {
+    accept: "application/json"
+  };
+  if (SERVICE_NOW_ENV.bearerToken) {
+    headers.authorization = `Bearer ${SERVICE_NOW_ENV.bearerToken}`;
+  } else if (SERVICE_NOW_ENV.cookie) {
+    headers.cookie = SERVICE_NOW_ENV.cookie;
+  } else {
+    const token = Buffer.from(`${SERVICE_NOW_ENV.username}:${SERVICE_NOW_ENV.password}`).toString("base64");
+    headers.authorization = `Basic ${token}`;
+  }
+  return headers;
+}
+
+function serviceNowTableUrl(table, params = {}) {
+  const url = new URL(`${serviceNowBaseUrl()}/api/now/table/${encodeURIComponent(table)}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && String(value) !== "") {
+      url.searchParams.set(key, String(value));
+    }
+  }
+  return url;
+}
+
+async function serviceNowGetTable(table, params = {}) {
+  const response = await fetch(serviceNowTableUrl(table, params), {
+    method: "GET",
+    headers: serviceNowHeaders()
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload.error?.message || payload.error?.detail || `ServiceNow request failed (${response.status})`;
+    throw new Error(message);
+  }
+  return Array.isArray(payload.result) ? payload.result : [];
+}
+
+function snEncodedEquals(field, value) {
+  return `${field}=${String(value ?? "").replace(/\^/g, " ")}`;
+}
+
+function snAppendQuery(base, extra) {
+  const cleanBase = String(base || "").replace(/\^+$/g, "");
+  const cleanExtra = String(extra || "").replace(/^\^+/g, "");
+  return [cleanBase, cleanExtra].filter(Boolean).join("^");
+}
+
+function serviceNowFieldValue(record, field) {
+  if (!record || !field) return "";
+  const value = record[field];
+  if (value && typeof value === "object") {
+    return safeString(value.display_value || value.value || "", 300);
+  }
+  return safeString(value, 300);
+}
+
+function parseWholeNumberValue(value) {
+  const textValue = safeString(value, 80).replace(/,/g, "");
+  if (!textValue || /^--+$/.test(textValue)) return null;
+  const match = textValue.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const number = Number(match[0]);
+  return Number.isFinite(number) ? Math.round(number) : null;
+}
+
+function serviceNowCategoryValue(record) {
+  return serviceNowFieldValue(record, SERVICE_NOW_ENV.categoryField).replace(/\s+/g, " ").trim();
+}
+
+function visibleRowRequest(row) {
+  return cleanJobCode(row.requestNo || row.request || row.number || "");
+}
+
+function trackerMinutesValue(task) {
+  const seconds = taskDurationSeconds(task);
+  if (seconds === null || seconds === undefined) return null;
+  return Math.round(Math.max(0, Number(seconds) || 0) / 60);
+}
+
+async function fetchServiceNowRequest(requestNo) {
+  const fields = [
+    "sys_id",
+    SERVICE_NOW_ENV.numberField,
+    SERVICE_NOW_ENV.categoryField,
+    SERVICE_NOW_ENV.slidesField
+  ].filter(Boolean).join(",");
+  const query = snAppendQuery(snEncodedEquals(SERVICE_NOW_ENV.numberField, requestNo), SERVICE_NOW_ENV.requestQueryExtra);
+  const rows = await serviceNowGetTable(SERVICE_NOW_ENV.requestTable, {
+    sysparm_query: query,
+    sysparm_fields: fields,
+    sysparm_limit: 1,
+    sysparm_display_value: "all",
+    sysparm_exclude_reference_link: "true"
+  });
+  return rows[0] || null;
+}
+
+async function fetchServiceNowProductionMinutes(requestNo, requestRecord) {
+  if (!SERVICE_NOW_ENV.reportingTable || !SERVICE_NOW_ENV.reportingParentField) {
+    return { configured: false, minutes: null, count: 0 };
+  }
+
+  const parentValue = SERVICE_NOW_ENV.reportingParentMode === "number"
+    ? requestNo
+    : serviceNowFieldValue(requestRecord, "sys_id");
+  if (!parentValue) return { configured: true, minutes: null, count: 0 };
+
+  const fields = [
+    SERVICE_NOW_ENV.reportingParentField,
+    SERVICE_NOW_ENV.reportingProductionField,
+    SERVICE_NOW_ENV.reportingMinutesField
+  ].filter(Boolean).join(",");
+  const productionPart = SERVICE_NOW_ENV.productionName && SERVICE_NOW_ENV.reportingProductionField
+    ? `${SERVICE_NOW_ENV.reportingProductionField}LIKE${SERVICE_NOW_ENV.productionName.replace(/\^/g, " ")}`
+    : "";
+  const query = snAppendQuery(
+    [snEncodedEquals(SERVICE_NOW_ENV.reportingParentField, parentValue), productionPart].filter(Boolean).join("^"),
+    SERVICE_NOW_ENV.reportingQueryExtra
+  );
+  const rows = await serviceNowGetTable(SERVICE_NOW_ENV.reportingTable, {
+    sysparm_query: query,
+    sysparm_fields: fields,
+    sysparm_limit: 20,
+    sysparm_display_value: "all",
+    sysparm_exclude_reference_link: "true"
+  });
+
+  let total = 0;
+  let count = 0;
+  for (const row of rows) {
+    const production = serviceNowFieldValue(row, SERVICE_NOW_ENV.reportingProductionField).toLowerCase();
+    if (SERVICE_NOW_ENV.productionName && production && !production.includes(SERVICE_NOW_ENV.productionName.toLowerCase())) {
+      continue;
+    }
+    const minutes = parseWholeNumberValue(serviceNowFieldValue(row, SERVICE_NOW_ENV.reportingMinutesField));
+    if (minutes === null) continue;
+    total += minutes;
+    count += 1;
+  }
+
+  return { configured: true, minutes: count ? total : null, count };
+}
+
+async function validateOneServiceNowRow(db, inputRow) {
+  const id = safeString(inputRow.id, 120);
+  const task = getTask(db, id);
+  const requestNo = visibleRowRequest(inputRow);
+  const result = {
+    id,
+    requestNo,
+    status: "pending",
+    tracker: {
+      category: task?.category || "",
+      slides: task?.slides || "",
+      minutes: task ? trackerMinutesValue(task) : null
+    },
+    serviceNow: {
+      category: "",
+      slides: null,
+      minutes: null,
+      minuteRows: 0
+    },
+    categoryUpdated: false,
+    slidesMismatch: false,
+    minutesMismatch: false,
+    messages: []
+  };
+
+  if (!task) {
+    result.status = "missing-tracker-row";
+    result.messages.push("Tracker row no longer exists.");
+    return result;
+  }
+  if (!requestNo) {
+    result.status = "missing-request";
+    result.messages.push("No Request # to search.");
+    return result;
+  }
+
+  const requestRecord = await fetchServiceNowRequest(requestNo);
+  if (!requestRecord) {
+    result.status = "not-found";
+    result.messages.push("Request was not found in the configured ServiceNow request table.");
+    return result;
+  }
+
+  result.status = "matched";
+  result.serviceNow.category = serviceNowCategoryValue(requestRecord);
+  result.serviceNow.slides = parseWholeNumberValue(serviceNowFieldValue(requestRecord, SERVICE_NOW_ENV.slidesField));
+
+  const trackerSlides = parseWholeNumberValue(task.slides);
+  if (trackerSlides !== null && result.serviceNow.slides !== null && trackerSlides !== result.serviceNow.slides) {
+    result.slidesMismatch = true;
+    result.messages.push(`Slides mismatch: tracker ${trackerSlides}, ServiceNow ${result.serviceNow.slides}.`);
+  }
+
+  const serviceNowMinutes = await fetchServiceNowProductionMinutes(requestNo, requestRecord);
+  result.serviceNow.minutes = serviceNowMinutes.minutes;
+  result.serviceNow.minuteRows = serviceNowMinutes.count;
+  if (!serviceNowMinutes.configured) {
+    result.messages.push("Production minutes lookup is not configured.");
+  } else if (result.tracker.minutes !== null && result.serviceNow.minutes !== null && result.tracker.minutes !== result.serviceNow.minutes) {
+    result.minutesMismatch = true;
+    result.messages.push(`Minutes mismatch: tracker ${result.tracker.minutes}, ServiceNow ${result.serviceNow.minutes}.`);
+  }
+
+  const category = result.serviceNow.category;
+  if (category && category.toLowerCase() !== safeString(task.category, 120).toLowerCase()) {
+    task.category = safeString(category, 120);
+    ensureCategory(db, task.category);
+    task.updatedAt = nowIso();
+    result.categoryUpdated = true;
+    result.tracker.category = task.category;
+    result.messages.push(`Category updated to "${task.category}".`);
+  }
+
+  if (!result.messages.length) result.messages.push("Matched.");
+  return result;
+}
+
+async function validateServiceNowRows(db, rows) {
+  const limitedRows = rows.slice(0, SERVICE_NOW_BATCH_LIMIT);
+  const results = [];
+  let categoryUpdates = 0;
+
+  for (const row of limitedRows) {
+    try {
+      const result = await validateOneServiceNowRow(db, row);
+      if (result.categoryUpdated) categoryUpdates += 1;
+      results.push(result);
+    } catch (error) {
+      results.push({
+        id: safeString(row.id, 120),
+        requestNo: visibleRowRequest(row),
+        status: "error",
+        tracker: {},
+        serviceNow: {},
+        categoryUpdated: false,
+        slidesMismatch: false,
+        minutesMismatch: false,
+        messages: [error.message || "ServiceNow validation failed."]
+      });
+    }
+  }
+
+  return {
+    totalRequested: rows.length,
+    totalProcessed: limitedRows.length,
+    truncated: rows.length > limitedRows.length,
+    categoryUpdates,
+    results
+  };
+}
+
 async function handleApi(req, res, url) {
   const db = await ensureDb();
   if (finalizePlannedBreakIfDue(db)) {
@@ -1223,6 +1533,10 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/health") {
     return json(res, 200, { ok: true, rows: db.tasks.length });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/servicenow/config") {
+    return json(res, 200, serviceNowConfigStatus());
   }
 
   if (req.method === "PUT" && url.pathname === "/api/settings") {
@@ -1576,6 +1890,46 @@ async function handleApi(req, res, url) {
     });
     res.end(docx);
     return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/servicenow/validate") {
+    const config = serviceNowConfigStatus();
+    if (!config.configured) {
+      return json(res, 424, {
+        error: "ServiceNow automatic validation is not configured on this server.",
+        configured: false,
+        missing: config.missing,
+        warnings: config.warnings
+      });
+    }
+
+    const body = await readBody(req);
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    if (!rows.length) return json(res, 400, { error: "No visible rows to validate." });
+
+    const report = await validateServiceNowRows(db, rows);
+    if (report.categoryUpdates) {
+      audit(db, "servicenow.validate", {
+        rows: report.totalProcessed,
+        categoryUpdates: report.categoryUpdates,
+        truncated: report.truncated
+      });
+      await saveDb(db);
+    } else {
+      audit(db, "servicenow.validate", {
+        rows: report.totalProcessed,
+        categoryUpdates: 0,
+        truncated: report.truncated
+      });
+      await saveDb(db);
+    }
+
+    return json(res, 200, {
+      ok: true,
+      configured: true,
+      ...report,
+      state: serializeForClient(db)
+    });
   }
 
   if (req.method === "POST" && url.pathname === "/api/import") {

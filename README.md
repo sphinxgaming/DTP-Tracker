@@ -16,6 +16,19 @@ The Word export uses `public/timesheet-template.docx` as the base template, so t
 
 Time budget input treats whole numbers as minutes (`10` = 10 minutes, `190` = 190 minutes). Decimal values are hours (`1.5`, `1.25`, `2.0`, `3.0`).
 
+## ServiceNow Validation
+
+The `Validate ServiceNow` button validates only the rows currently visible after Search/From/To/Category filters. It is read-only for ServiceNow: it fills or updates tracker `Category of work` only, and reports mismatches for `# of slides` and `Worked mins`.
+
+A deployed website cannot click or read a separate logged-in ServiceNow Chrome tab. For true automatic validation, configure read-only ServiceNow API environment variables on the server:
+
+- `SERVICENOW_INSTANCE_URL`
+- `SERVICENOW_REQUEST_TABLE`
+- `SERVICENOW_USER` and `SERVICENOW_PASSWORD`, or `SERVICENOW_BEARER_TOKEN`
+- `SERVICENOW_CATEGORY_FIELD`, default `u_graphic_design_category`
+- `SERVICENOW_SLIDES_FIELD`, default `u_number_of_slides`
+- Optional production-minutes check: `SERVICENOW_REPORTING_TABLE`, `SERVICENOW_REPORTING_PARENT_FIELD`, `SERVICENOW_REPORTING_MINUTES_FIELD`, `SERVICENOW_REPORTING_PRODUCTION_FIELD`
+
 ## Run Locally With Installed Node
 
 ```powershell

@@ -407,6 +407,16 @@
   font-weight: 800;
 }
 
+.sn-row-warning td:last-child {
+  color: #955004;
+  font-weight: 800;
+}
+
+.sn-row-error td:last-child {
+  color: var(--fti-red);
+  font-weight: 800;
+}
+
 .sn-row-current td {
   background: #eef7fb;
 }
@@ -414,6 +424,30 @@
 .sn-row-check td:last-child {
   color: var(--fti-blue-dark);
   font-weight: 800;
+}
+
+.sn-setup-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.sn-setup-card h3,
+.sn-setup-card p {
+  margin: 0;
+}
+
+.sn-setup-card h3 {
+  color: var(--fti-blue-dark);
+  font-size: 14px;
+}
+
+.sn-setup-list {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.45;
 }
 
 @media (max-width: 900px) {
