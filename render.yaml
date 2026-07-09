@@ -14,6 +14,32 @@ services:
         value: /var/data
       - key: NODE_VERSION
         value: 20
+      - key: SERVICENOW_INSTANCE_URL
+        value: https://fticonsulting.service-now.com
+      - key: SERVICENOW_REQUEST_TABLE
+        value: u_dtp_request
+      - key: SERVICENOW_NUMBER_FIELD
+        value: number
+      - key: SERVICENOW_CATEGORY_FIELD
+        value: u_graphic_design_category
+      - key: SERVICENOW_SLIDES_FIELD
+        value: u_number_of_slides
+      - key: SERVICENOW_PRODUCTION_NAME
+        value: Bryan Logapo
+      - key: SERVICENOW_USER
+        sync: false
+      - key: SERVICENOW_PASSWORD
+        sync: false
+      - key: SERVICENOW_BEARER_TOKEN
+        sync: false
+      - key: SERVICENOW_REPORTING_TABLE
+        sync: false
+      - key: SERVICENOW_REPORTING_PARENT_FIELD
+        sync: false
+      - key: SERVICENOW_REPORTING_PRODUCTION_FIELD
+        sync: false
+      - key: SERVICENOW_REPORTING_MINUTES_FIELD
+        sync: false
     disk:
       name: dtp-data
       mountPath: /var/data
