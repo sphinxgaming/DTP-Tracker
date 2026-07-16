@@ -431,7 +431,7 @@ function hideAuthGate() {
 }
 
 function renderAuthBar() {
-  const user = currentUser || state?.currentUser || state?.auth?.user;
+  const user = state?.currentUser || state?.auth?.user || currentUser;
   const viewUser = state?.viewUser || state?.auth?.viewUser;
   currentUser = user || currentUser;
   if (!user) {
