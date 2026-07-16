@@ -16,6 +16,8 @@ const DB_FILE = path.join(DATA_DIR, "tracker.json");
 const DB_BACKUP_FILE = `${DB_FILE}.bak`;
 const SEED_DB_FILE = process.env.SEED_DB_FILE || path.join(ROOT, "data", "tracker.seed.json");
 const TEMPLATE_FILE = path.join(PUBLIC_DIR, "timesheet-template.docx");
+const STARTED_AT = new Date().toISOString();
+const DEPLOY_COMMIT = String(process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || "").trim().slice(0, 12);
 const PDFJS_BUILD_DIR = path.join(ROOT, "node_modules", "pdfjs-dist", "build");
 const TOOL_VENDOR_FILES = new Map([
   ["/tools/vendor/pdf.min.mjs", path.join(PDFJS_BUILD_DIR, "pdf.min.mjs")],
@@ -2289,7 +2291,9 @@ async function handleApi(req, res, url) {
       ok: true,
       rows: rootDb.tasks.length,
       users: rootDb.users.length,
-      auth: true
+      auth: true,
+      commit: DEPLOY_COMMIT || null,
+      startedAt: STARTED_AT
     });
   }
 
@@ -2979,8 +2983,16 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, async () => {
+async function startServer() {
   await ensureDb();
-  console.log(`DTP web tracker running at http://localhost:${PORT}`);
-  console.log(`Local data file: ${DB_FILE}`);
+  server.listen(PORT, HOST, () => {
+    console.log(`DTP web tracker running at http://${HOST}:${PORT}`);
+    console.log(`Local data file: ${DB_FILE}`);
+    if (DEPLOY_COMMIT) console.log(`Render commit: ${DEPLOY_COMMIT}`);
+  });
+}
+
+startServer().catch((error) => {
+  console.error("DTP web tracker failed to start.", error);
+  process.exitCode = 1;
 });

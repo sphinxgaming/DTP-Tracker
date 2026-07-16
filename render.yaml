@@ -4,7 +4,7 @@ services:
     runtime: node
     region: singapore
     plan: starter
-    buildCommand: npm install --omit=optional
+    buildCommand: npm ci --omit=optional
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
@@ -13,7 +13,9 @@ services:
       - key: DATA_DIR
         value: /var/data
       - key: NODE_VERSION
-        value: 20
+        value: 24.14.1
+      - key: NODE_ENV
+        value: production
       - key: ADMIN_BOOTSTRAP_USERNAME
         value: bryan
       - key: ADMIN_BOOTSTRAP_DISPLAY_NAME
