@@ -11,7 +11,7 @@ This is a local web-based replacement for the Excel/VBA DTP tracker. It keeps th
 - import old CSV/Excel rows that use the standard timesheet columns
 - generate a Word timesheet from the visible filtered rows
 - show all official tracker times in Dubai time (`Asia/Dubai`, UTC+4)
-- open the hosted PPTX Slimmer and Image Extractor from the top toolbar
+- open the hosted PPTX Slimmer and Image Extractor in separate tabs from the top toolbar
 
 The Word export uses `public/timesheet-template.docx` as the base template, so the official logo/footer/signature layout stays with the generated file.
 

@@ -22,8 +22,7 @@
     document.body.innerHTML = `
       <div class="tool-auth-error">
         <h1>Could not open this tool</h1>
-        <p>The DTP Tracker server is not reachable. Return to the tracker and try again.</p>
-        <a class="tool-button primary" href="/">Back to tracker</a>
+        <p>The DTP Tracker server is not reachable. Close this tab and try opening the tool again from your tracker.</p>
       </div>
     `;
   }

@@ -50,7 +50,7 @@
     {
       target: ".header-tools",
       title: "Open the DTP utility tools",
-      text: "PPTX Slimmer reduces presentation size in the browser. Image Extractor collects high-resolution images from public sites and uploaded PDF, PowerPoint, Word, Excel, ZIP, and image files."
+      text: "PPTX Slimmer reduces presentation size in the browser. Image Extractor collects high-resolution images from public sites and uploaded files. Both open in a separate tab so your tracker stays available."
     }
   ];
 
