@@ -2,6 +2,8 @@ const http = require("node:http");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const zlib = require("node:zlib");
+const dns = require("node:dns").promises;
+const net = require("node:net");
 const { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } = require("node:crypto");
 const { URL } = require("node:url");
 
@@ -14,8 +16,19 @@ const DB_FILE = path.join(DATA_DIR, "tracker.json");
 const DB_BACKUP_FILE = `${DB_FILE}.bak`;
 const SEED_DB_FILE = process.env.SEED_DB_FILE || path.join(ROOT, "data", "tracker.seed.json");
 const TEMPLATE_FILE = path.join(PUBLIC_DIR, "timesheet-template.docx");
+const PDFJS_BUILD_DIR = path.join(ROOT, "node_modules", "pdfjs-dist", "build");
+const TOOL_VENDOR_FILES = new Map([
+  ["/tools/vendor/pdf.min.mjs", path.join(PDFJS_BUILD_DIR, "pdf.min.mjs")],
+  ["/tools/vendor/pdf.worker.min.mjs", path.join(PDFJS_BUILD_DIR, "pdf.worker.min.mjs")]
+]);
 const DUBAI_TZ = "Asia/Dubai";
 const SERVICE_NOW_BATCH_LIMIT = 300;
+const TOOL_FETCH_TIMEOUT_MS = 15000;
+const TOOL_MAX_HTML_BYTES = 5 * 1024 * 1024;
+const TOOL_MAX_CSS_BYTES = 2 * 1024 * 1024;
+const TOOL_MAX_IMAGE_BYTES = 30 * 1024 * 1024;
+const TOOL_MAX_PAGES = 40;
+const TOOL_MAX_IMAGES = 600;
 const ADMIN_BOOTSTRAP_USERNAME = normalizeUsername(envValue("ADMIN_BOOTSTRAP_USERNAME", "ADMIN_USERNAME") || "bryan");
 const ADMIN_BOOTSTRAP_DISPLAY_NAME = envValue("ADMIN_BOOTSTRAP_DISPLAY_NAME", "ADMIN_DISPLAY_NAME") || "Bryan Logapo";
 const ADMIN_BOOTSTRAP_PASSWORD = envValue("ADMIN_BOOTSTRAP_PASSWORD", "ADMIN_PASSWORD", "ADMIN_SETUP_CODE", "DTP_ADMIN_SETUP_CODE") || "BryanFTIAdmin2026!";
@@ -102,11 +115,17 @@ const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
-  ".svg": "image/svg+xml"
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".avif": "image/avif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon"
 };
 
 async function ensureDb() {
@@ -514,6 +533,404 @@ async function readBody(req) {
     error.statusCode = 400;
     throw error;
   }
+}
+
+function toolIsImageUrl(value) {
+  try {
+    const url = value instanceof URL ? value : new URL(String(value || ""));
+    return /\.(?:avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)$/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function toolDecodeHtml(value) {
+  return String(value || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code) || 0))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16) || 0));
+}
+
+function toolNormalizeUrl(raw, baseUrl = "") {
+  const value = toolDecodeHtml(raw).trim();
+  if (!value || /^(?:data|javascript|mailto|tel):/i.test(value) || value.startsWith("#")) return "";
+  try {
+    const normalized = baseUrl ? new URL(value, baseUrl) : new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`);
+    if (!["http:", "https:"].includes(normalized.protocol)) return "";
+    normalized.hash = "";
+    return normalized.href;
+  } catch {
+    return "";
+  }
+}
+
+function toolIsPrivateAddress(address) {
+  const clean = String(address || "").toLowerCase().split("%")[0];
+  const family = net.isIP(clean);
+  if (family === 4) {
+    const parts = clean.split(".").map(Number);
+    const [a, b] = parts;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 0) ||
+      (a === 192 && b === 168) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      a >= 224
+    );
+  }
+  if (family === 6) {
+    if (clean === "::" || clean === "::1") return true;
+    if (clean.startsWith("fc") || clean.startsWith("fd") || clean.startsWith("fe8") || clean.startsWith("fe9") || clean.startsWith("fea") || clean.startsWith("feb")) return true;
+    const mapped = clean.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapped) return toolIsPrivateAddress(mapped[1]);
+  }
+  return family === 0;
+}
+
+async function toolAssertPublicUrl(rawUrl) {
+  const normalized = toolNormalizeUrl(rawUrl);
+  if (!normalized) throw new Error("Enter a valid public http/https URL.");
+  const url = new URL(normalized);
+  const hostname = url.hostname.toLowerCase();
+  if (!hostname || hostname === "localhost" || hostname.endsWith(".local")) {
+    throw new Error("Local or private network addresses are not allowed.");
+  }
+  if (net.isIP(hostname)) {
+    if (toolIsPrivateAddress(hostname)) throw new Error("Local or private network addresses are not allowed.");
+    return url;
+  }
+  let addresses;
+  try {
+    addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+  } catch {
+    throw new Error(`Could not resolve ${hostname}.`);
+  }
+  if (!addresses.length || addresses.some((entry) => toolIsPrivateAddress(entry.address))) {
+    throw new Error("Local or private network addresses are not allowed.");
+  }
+  return url;
+}
+
+async function toolFetchRemote(rawUrl, options = {}) {
+  let current = await toolAssertPublicUrl(rawUrl);
+  const maxBytes = Math.max(1024, Number(options.maxBytes) || TOOL_MAX_HTML_BYTES);
+  const accept = options.accept || "text/html,application/xhtml+xml,image/*,*/*;q=0.7";
+  const extraHeaders = options.headers && typeof options.headers === "object" ? options.headers : {};
+
+  for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TOOL_FETCH_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch(current, {
+        method: "GET",
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
+          accept,
+          "accept-language": "en-US,en;q=0.8",
+          "user-agent": "Mozilla/5.0 (compatible; DTP-Tracker-Image-Extractor/1.0)",
+          ...extraHeaders
+        }
+      });
+    } catch (error) {
+      clearTimeout(timer);
+      if (error.name === "AbortError") throw new Error(`Timed out while loading ${current.hostname}.`);
+      throw new Error(`Could not load ${current.href}.`);
+    }
+    clearTimeout(timer);
+
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location) throw new Error("The remote site returned an invalid redirect.");
+      if (response.body) await response.body.cancel();
+      current = await toolAssertPublicUrl(new URL(location, current).href);
+      continue;
+    }
+    if (!response.ok) throw new Error(`Remote site returned HTTP ${response.status}.`);
+
+    const declaredLength = Number(response.headers.get("content-length") || 0);
+    if (declaredLength > maxBytes) throw new Error(`Remote file is larger than ${Math.round(maxBytes / 1024 / 1024)} MB.`);
+
+    const chunks = [];
+    let total = 0;
+    if (response.body) {
+      const reader = response.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel();
+          throw new Error(`Remote file is larger than ${Math.round(maxBytes / 1024 / 1024)} MB.`);
+        }
+        chunks.push(Buffer.from(value));
+      }
+    }
+    return {
+      buffer: Buffer.concat(chunks),
+      contentType: String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase(),
+      finalUrl: current.href,
+      headers: response.headers
+    };
+  }
+  throw new Error("Too many redirects.");
+}
+
+function toolTagAttributes(tag) {
+  const attributes = {};
+  const pattern = /([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+  let match;
+  while ((match = pattern.exec(tag))) {
+    attributes[match[1].toLowerCase()] = toolDecodeHtml(match[2] ?? match[3] ?? match[4] ?? "");
+  }
+  return attributes;
+}
+
+function toolBestSrcset(value) {
+  let best = "";
+  let bestScore = -1;
+  for (const candidate of String(value || "").split(",")) {
+    const parts = candidate.trim().split(/\s+/);
+    if (!parts[0]) continue;
+    const descriptor = parts[1] || "1x";
+    const numeric = Number.parseFloat(descriptor) || 1;
+    const score = descriptor.endsWith("w") ? numeric : numeric * 10000;
+    if (score > bestScore) {
+      best = parts[0];
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function toolExtractCssUrls(cssText, baseUrl) {
+  const out = [];
+  const pattern = /url\(\s*(?:"([^"]+)"|'([^']+)'|([^'")]+))\s*\)/gi;
+  let match;
+  while ((match = pattern.exec(String(cssText || "")))) {
+    const normalized = toolNormalizeUrl(match[1] || match[2] || match[3] || "", baseUrl);
+    if (normalized && !/\.(?:woff2?|ttf|otf|eot)(?:$|[?#])/i.test(normalized)) out.push(normalized);
+  }
+  return out;
+}
+
+function toolExtractHtmlSources(htmlText, pageUrl) {
+  const images = [];
+  const stylesheets = [];
+  const pageLinks = [];
+  const addImage = (value) => {
+    const normalized = toolNormalizeUrl(value, pageUrl);
+    if (normalized) images.push(normalized);
+  };
+
+  for (const tag of String(htmlText || "").match(/<(?:img|source)\b[^>]*>/gi) || []) {
+    const attrs = toolTagAttributes(tag);
+    addImage(toolBestSrcset(attrs.srcset || attrs["data-srcset"]));
+    for (const key of ["src", "data-src", "data-lazy-src", "data-original", "data-image", "poster"]) {
+      addImage(attrs[key]);
+    }
+    if (attrs.style) images.push(...toolExtractCssUrls(attrs.style, pageUrl));
+  }
+
+  for (const tag of String(htmlText || "").match(/<meta\b[^>]*>/gi) || []) {
+    const attrs = toolTagAttributes(tag);
+    const key = String(attrs.property || attrs.name || "").toLowerCase();
+    if (/(?:^|:)(?:image|image:url|thumbnail)$/.test(key) || ["og:image", "twitter:image", "twitter:image:src"].includes(key)) {
+      addImage(attrs.content);
+    }
+  }
+
+  for (const tag of String(htmlText || "").match(/<link\b[^>]*>/gi) || []) {
+    const attrs = toolTagAttributes(tag);
+    const rel = String(attrs.rel || "").toLowerCase();
+    const href = toolNormalizeUrl(attrs.href, pageUrl);
+    if (!href) continue;
+    if (rel.includes("stylesheet")) stylesheets.push(href);
+    if (rel.includes("icon") || rel.includes("image_src") || (rel.includes("preload") && String(attrs.as || "").toLowerCase() === "image")) {
+      images.push(href);
+    }
+  }
+
+  for (const tag of String(htmlText || "").match(/<a\b[^>]*>/gi) || []) {
+    const attrs = toolTagAttributes(tag);
+    const href = toolNormalizeUrl(attrs.href, pageUrl);
+    if (href) pageLinks.push(href);
+  }
+
+  images.push(...toolExtractCssUrls(htmlText, pageUrl));
+  const directPattern = /https?:\/\/[^\s"'<>\\]+\.(?:avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)(?:\?[^\s"'<>\\]*)?/gi;
+  for (const match of String(htmlText || "").match(directPattern) || []) addImage(match);
+
+  return {
+    images: [...new Set(images)].slice(0, TOOL_MAX_IMAGES),
+    stylesheets: [...new Set(stylesheets)].slice(0, 16),
+    pageLinks: [...new Set(pageLinks)]
+  };
+}
+
+function toolSameOrigin(rootUrl, targetUrl) {
+  try {
+    return new URL(rootUrl).origin === new URL(targetUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function toolImageName(imageUrl) {
+  try {
+    const parsed = new URL(imageUrl);
+    const raw = decodeURIComponent(path.posix.basename(parsed.pathname) || "remote-image");
+    return safeString(raw.replace(/[^\w.\- ()]+/g, "_"), 180) || "remote-image";
+  } catch {
+    return "remote-image";
+  }
+}
+
+function toolImageMime(imageUrl) {
+  try {
+    return mimeTypes[path.extname(new URL(imageUrl).pathname).toLowerCase()] || "";
+  } catch {
+    return "";
+  }
+}
+
+function toolImageItem(imageUrl, pageUrl) {
+  const name = toolImageName(imageUrl);
+  const encodedUrl = encodeURIComponent(imageUrl);
+  const encodedName = encodeURIComponent(name);
+  return {
+    id: createHash("sha256").update(imageUrl).digest("hex").slice(0, 24),
+    kind: "remote",
+    name,
+    source: imageUrl,
+    page: pageUrl || imageUrl,
+    preview: `/api/tools/image-proxy?url=${encodedUrl}`,
+    download: `/api/tools/image-proxy?url=${encodedUrl}&download=1&name=${encodedName}`,
+    width: null,
+    height: null,
+    bytes: null,
+    mime: toolImageMime(imageUrl)
+  };
+}
+
+async function toolCrawlImages(payload) {
+  const seeds = [...new Set((Array.isArray(payload.urls) ? payload.urls : []).map((value) => toolNormalizeUrl(value)).filter(Boolean))];
+  if (!seeds.length) throw new Error("Add at least one public URL.");
+  const includeCss = payload.includeCss !== false;
+  const followLinks = Boolean(payload.followLinks);
+  const pageLimit = Math.min(TOOL_MAX_PAGES, Math.max(seeds.length, Number(payload.pageLimit) || seeds.length));
+  const queue = seeds.map((url) => ({ url, root: url }));
+  const seenPages = new Set();
+  const seenStylesheets = new Set();
+  const imagePages = new Map();
+  const warnings = [];
+
+  while (queue.length && seenPages.size < pageLimit && imagePages.size < TOOL_MAX_IMAGES) {
+    const entry = queue.shift();
+    if (!entry || seenPages.has(entry.url)) continue;
+    seenPages.add(entry.url);
+
+    if (toolIsImageUrl(entry.url)) {
+      try {
+        const safeImageUrl = await toolAssertPublicUrl(entry.url);
+        imagePages.set(safeImageUrl.href, safeImageUrl.href);
+      } catch (error) {
+        warnings.push(`${entry.url}: ${error.message}`);
+      }
+      continue;
+    }
+
+    try {
+      const response = await toolFetchRemote(entry.url, {
+        maxBytes: TOOL_MAX_HTML_BYTES,
+        accept: "text/html,application/xhtml+xml,image/*,*/*;q=0.7"
+      });
+      if (response.contentType.startsWith("image/")) {
+        imagePages.set(response.finalUrl, response.finalUrl);
+        continue;
+      }
+      const htmlText = new TextDecoder("utf-8").decode(response.buffer);
+      const sources = toolExtractHtmlSources(htmlText, response.finalUrl);
+      for (const imageUrl of sources.images) {
+        if (imagePages.size >= TOOL_MAX_IMAGES) break;
+        imagePages.set(imageUrl, response.finalUrl);
+      }
+
+      if (includeCss) {
+        for (const stylesheetUrl of sources.stylesheets) {
+          if (seenStylesheets.has(stylesheetUrl) || imagePages.size >= TOOL_MAX_IMAGES) continue;
+          seenStylesheets.add(stylesheetUrl);
+          try {
+            const cssResponse = await toolFetchRemote(stylesheetUrl, {
+              maxBytes: TOOL_MAX_CSS_BYTES,
+              accept: "text/css,*/*;q=0.5"
+            });
+            const cssText = new TextDecoder("utf-8").decode(cssResponse.buffer);
+            for (const imageUrl of toolExtractCssUrls(cssText, cssResponse.finalUrl)) {
+              if (imagePages.size >= TOOL_MAX_IMAGES) break;
+              imagePages.set(imageUrl, response.finalUrl);
+            }
+          } catch (error) {
+            warnings.push(`${stylesheetUrl}: ${error.message}`);
+          }
+        }
+      }
+
+      if (followLinks) {
+        for (const link of sources.pageLinks) {
+          if (queue.length + seenPages.size >= pageLimit) break;
+          if (!seenPages.has(link) && toolSameOrigin(entry.root, link)) queue.push({ url: link, root: entry.root });
+        }
+      }
+    } catch (error) {
+      warnings.push(`${entry.url}: ${error.message}`);
+    }
+  }
+
+  return {
+    items: [...imagePages.entries()].map(([imageUrl, pageUrl]) => toolImageItem(imageUrl, pageUrl)),
+    warnings: warnings.slice(0, 30),
+    pagesScanned: seenPages.size,
+    limited: imagePages.size >= TOOL_MAX_IMAGES
+  };
+}
+
+function toolSafeDownloadName(value, fallback = "image") {
+  const clean = safeString(value, 180).replace(/[\\/:*?"<>|\r\n]+/g, "_").trim();
+  return clean || fallback;
+}
+
+async function toolSendImageProxy(res, url, query) {
+  const remote = await toolFetchRemote(url, {
+    maxBytes: TOOL_MAX_IMAGE_BYTES,
+    accept: "image/avif,image/webp,image/png,image/jpeg,image/svg+xml,image/gif,image/*;q=0.9,*/*;q=0.2"
+  });
+  const fallbackMime = toolImageMime(remote.finalUrl);
+  const contentType = remote.contentType.startsWith("image/") ? remote.contentType : fallbackMime;
+  if (!contentType || !contentType.startsWith("image/")) throw new Error("The remote URL did not return an image.");
+
+  const download = query.get("download") === "1";
+  const filename = toolSafeDownloadName(query.get("name") || toolImageName(remote.finalUrl));
+  const headers = {
+    "content-type": contentType,
+    "content-length": String(remote.buffer.length),
+    "cache-control": download ? "no-store" : "private, max-age=300",
+    "x-content-type-options": "nosniff",
+    "content-disposition": `${download ? "attachment" : "inline"}; filename="${filename.replace(/"/g, "")}"`
+  };
+  if (contentType === "image/svg+xml") headers["content-security-policy"] = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
+  res.writeHead(200, headers);
+  res.end(remote.buffer);
 }
 
 function secondsSince(iso, nowMs = Date.now()) {
@@ -1911,6 +2328,26 @@ async function handleApi(req, res, url) {
     await saveDb(db);
   }
 
+  if (req.method === "POST" && url.pathname === "/api/tools/image-scan") {
+    try {
+      const body = await readBody(req);
+      const result = await toolCrawlImages(body);
+      return json(res, 200, { ok: true, ...result });
+    } catch (error) {
+      return json(res, 400, { ok: false, error: error.message || "Could not scan that site." });
+    }
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/tools/image-proxy") {
+    const remoteUrl = url.searchParams.get("url") || "";
+    if (!remoteUrl) return json(res, 400, { error: "Image URL is required." });
+    try {
+      return await toolSendImageProxy(res, remoteUrl, url.searchParams);
+    } catch (error) {
+      return json(res, 400, { error: error.message || "Could not load that image." });
+    }
+  }
+
   if (req.method === "GET" && url.pathname === "/api/state") {
     return json(res, 200, serializeForClient(db));
   }
@@ -2467,6 +2904,23 @@ async function handleApi(req, res, url) {
 }
 
 async function serveStatic(req, res, url) {
+  const vendorFile = TOOL_VENDOR_FILES.get(url.pathname);
+  if (vendorFile) {
+    try {
+      const data = await fs.readFile(vendorFile);
+      res.writeHead(200, {
+        "content-type": "text/javascript; charset=utf-8",
+        "cache-control": "public, max-age=86400",
+        "x-content-type-options": "nosniff"
+      });
+      res.end(data);
+      return;
+    } catch (error) {
+      if (error.code === "ENOENT") return text(res, 404, "Tool dependency not installed");
+      throw error;
+    }
+  }
+
   let filePath = decodeURIComponent(url.pathname);
   if (filePath === "/") filePath = "/index.html";
   const resolved = path.normalize(path.join(PUBLIC_DIR, filePath));

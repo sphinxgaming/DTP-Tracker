@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>DTP Time Tracker</title>
-    <link rel="stylesheet" href="/styles.css?v=20260716-clock-right">
+    <link rel="stylesheet" href="/styles.css?v=20260716-integrated-tools">
     <link rel="stylesheet" href="/servicenow-validation.css?v=20260715-servicenow-portal-queue">
   </head>
   <body class="auth-locked">
@@ -13,6 +13,10 @@
         <p class="eyebrow">FTI Consulting</p>
         <h1>DTP Time Tracker <span>Web 1.0</span></h1>
       </div>
+      <nav class="header-tools" aria-label="DTP tools">
+        <a href="/tools/pptx-slimmer.html">PPTX Slimmer</a>
+        <a href="/tools/image-extractor.html">Image Extractor</a>
+      </nav>
       <div class="header-clock">
         <span id="headerDubaiTime">--</span>
         <small>Dubai (DXB) time</small>
@@ -261,7 +265,7 @@
 
     <datalist id="categoryOptions"></datalist>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260716-clock-right" defer></script>
+    <script src="/app.js?v=20260716-integrated-tools" defer></script>
     <script src="/servicenow-validation.js?v=20260715-servicenow-portal-queue" defer></script>
   </body>
 </html>

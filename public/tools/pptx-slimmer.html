@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PPTX Slimmer | DTP Tracker</title>
+    <link rel="stylesheet" href="/tools/tool-shell.css?v=20260716-integrated-tools">
+    <link rel="stylesheet" href="/tools/pptx-slimmer.css?v=20260716-integrated-tools">
+  </head>
+  <body class="tool-loading">
+    <header class="tool-header">
+      <div class="tool-brand">
+        <small>FTI Consulting</small>
+        <strong>DTP Tool Suite</strong>
+      </div>
+      <nav class="tool-nav" aria-label="Tool navigation">
+        <span class="tool-user" data-tool-user>Checking account...</span>
+        <a class="tool-button" href="/tools/image-extractor.html">Image Extractor</a>
+        <a class="tool-button" href="/">Back to Tracker</a>
+      </nav>
+    </header>
+
+    <main class="tool-page">
+      <div class="tool-titlebar">
+        <div>
+          <p>PowerPoint utility</p>
+          <h1>PPTX Slimmer</h1>
+        </div>
+        <span>Your presentation stays in this browser. It is optimized on the user's device and is not uploaded to the tracker server.</span>
+      </div>
+
+      <section class="slimmer-grid" aria-label="PPTX optimizer">
+        <section class="slimmer-panel upload-panel" aria-label="Upload PowerPoint file">
+          <label class="drop-zone" id="dropZone">
+            <input id="fileInput" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation">
+            <strong>Drop a .pptx file here</strong>
+            <span>or click to choose a presentation</span>
+          </label>
+
+          <div class="file-card hidden" id="fileCard">
+            <div>
+              <p class="label">Selected file</p>
+              <strong id="fileName"></strong>
+              <span id="fileSize"></span>
+            </div>
+            <button id="clearFile" type="button">Clear</button>
+          </div>
+
+          <button class="primary-action" id="optimizeButton" type="button" disabled>Optimize PPTX</button>
+        </section>
+
+        <section class="slimmer-panel settings-panel" aria-label="Optimization settings">
+          <div class="settings-header">
+            <h2>Settings</h2>
+            <button class="text-button" id="resetSettings" type="button">Reset</button>
+          </div>
+
+          <label class="setting-row" for="targetPpi">
+            <span>
+              <strong>Minimum image density</strong>
+              <small>Never resize below this PPI</small>
+            </span>
+            <input id="targetPpi" type="number" min="150" max="300" step="10" value="180">
+          </label>
+
+          <label class="setting-row" for="jpegQuality">
+            <span>
+              <strong>JPEG quality</strong>
+              <small>Used when resized JPEGs are saved</small>
+            </span>
+            <input id="jpegQuality" type="number" min="80" max="98" step="1" value="92">
+          </label>
+
+          <label class="toggle-row" for="cleanMasters">
+            <span>
+              <strong>Remove unused masters</strong>
+              <small>Deletes unused slide masters and layouts</small>
+            </span>
+            <input id="cleanMasters" type="checkbox" checked>
+          </label>
+
+          <label class="toggle-row" for="protectSmallArt">
+            <span>
+              <strong>Protect logos and small art</strong>
+              <small>Skips likely logos, icons, and transparent marks</small>
+            </span>
+            <input id="protectSmallArt" type="checkbox" checked>
+          </label>
+        </section>
+      </section>
+
+      <section class="slimmer-panel progress-panel hidden" id="progressPanel" aria-live="polite">
+        <div class="meter"><span id="meterBar"></span></div>
+        <p id="progressText">Waiting</p>
+      </section>
+
+      <section class="slimmer-panel result-panel hidden" id="resultPanel" aria-live="polite">
+        <div class="result-summary">
+          <div>
+            <p class="label">New size</p>
+            <strong id="newSize"></strong>
+          </div>
+          <div>
+            <p class="label">Saved</p>
+            <strong id="savedSize"></strong>
+          </div>
+          <a class="download-link" id="downloadLink" href="#" download>Download optimized deck</a>
+        </div>
+        <div class="stats-grid" id="statsGrid"></div>
+      </section>
+
+      <section class="slimmer-panel log-panel" aria-label="Optimization log">
+        <div class="log-header">
+          <h2>Optimization log</h2>
+          <button class="text-button" id="copyLog" type="button">Copy log</button>
+        </div>
+        <ol id="logList"></ol>
+      </section>
+    </main>
+
+    <script src="/tools/tool-auth.js?v=20260716-integrated-tools"></script>
+    <script src="/tools/vendor/jszip.min.js"></script>
+    <script src="/tools/pptx-slimmer.js?v=20260716-integrated-tools"></script>
+  </body>
+</html>

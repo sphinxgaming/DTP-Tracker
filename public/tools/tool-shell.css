@@ -1,0 +1,214 @@
+:root {
+  --fti-blue: #083f67;
+  --fti-blue-dark: #052e4a;
+  --fti-cyan: #16a9dc;
+  --fti-orange: #ef7531;
+  --tool-ink: #10202e;
+  --tool-muted: #617385;
+  --tool-line: #d9e1e8;
+  --tool-bg: #eef2f5;
+  --tool-surface: #ffffff;
+  --tool-soft: #f7f9fb;
+  --tool-shadow: 0 12px 28px rgba(8, 63, 103, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+  letter-spacing: 0;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--tool-ink);
+  background: var(--tool-bg);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+body.tool-loading .tool-page {
+  visibility: hidden;
+}
+
+body.tool-loading::after {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  content: "Opening tool...";
+  color: var(--fti-blue-dark);
+  background: var(--tool-bg);
+  font-weight: 800;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+.tool-button {
+  min-height: 38px;
+  border: 1px solid var(--tool-line);
+  border-radius: 4px;
+  padding: 0 14px;
+  color: var(--tool-ink);
+  background: var(--tool-surface);
+  cursor: pointer;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+button:hover:not(:disabled),
+.tool-button:hover {
+  border-color: #9dc7db;
+  background: #eef7fb;
+}
+
+button:disabled {
+  color: #9ba8b4;
+  background: #f0f2f4;
+  cursor: not-allowed;
+}
+
+.tool-button.primary,
+button.primary {
+  border-color: var(--fti-blue);
+  color: #fff;
+  background: var(--fti-blue);
+}
+
+.tool-button.primary:hover,
+button.primary:hover:not(:disabled) {
+  border-color: var(--fti-blue-dark);
+  background: var(--fti-blue-dark);
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 76px;
+  padding: 14px clamp(18px, 4vw, 56px);
+  color: #fff;
+  background: var(--fti-blue);
+}
+
+.tool-brand {
+  display: grid;
+  gap: 3px;
+  min-width: 230px;
+}
+
+.tool-brand small {
+  color: #b8d4e6;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.tool-brand strong {
+  font-size: 21px;
+}
+
+.tool-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.tool-nav .tool-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tool-nav .tool-button:hover {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.tool-user {
+  max-width: 220px;
+  overflow: hidden;
+  color: #ccecf8;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-page {
+  width: min(1320px, 100%);
+  margin: 0 auto;
+  padding: 28px clamp(14px, 3vw, 34px) 44px;
+}
+
+.tool-titlebar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.tool-titlebar p {
+  margin: 0 0 4px;
+  color: var(--tool-muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.tool-titlebar h1 {
+  margin: 0;
+  color: var(--fti-blue-dark);
+  font-size: 30px;
+}
+
+.tool-titlebar span {
+  max-width: 620px;
+  color: var(--tool-muted);
+  font-size: 13px;
+  text-align: right;
+}
+
+.tool-auth-error {
+  width: min(560px, calc(100vw - 32px));
+  margin: 70px auto;
+  padding: 24px;
+  border: 1px solid var(--tool-line);
+  background: #fff;
+  box-shadow: var(--tool-shadow);
+}
+
+@media (max-width: 760px) {
+  .tool-header,
+  .tool-titlebar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tool-nav {
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+
+  .tool-user {
+    max-width: none;
+  }
+
+  .tool-titlebar span {
+    text-align: left;
+  }
+}

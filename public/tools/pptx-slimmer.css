@@ -1,0 +1,264 @@
+.slimmer-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 18px;
+}
+
+.slimmer-panel {
+  min-width: 0;
+  border: 1px solid var(--tool-line);
+  border-radius: 6px;
+  background: var(--tool-surface);
+  box-shadow: var(--tool-shadow);
+}
+
+.upload-panel,
+.settings-panel,
+.progress-panel,
+.result-panel,
+.log-panel {
+  padding: 18px;
+}
+
+.drop-zone {
+  display: grid;
+  min-height: 280px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  border: 2px dashed #9fc7da;
+  border-radius: 6px;
+  padding: 24px;
+  color: var(--tool-ink);
+  background: #f7fbfd;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.drop-zone:hover,
+.drop-zone.is-dragging {
+  border-color: var(--fti-cyan);
+  background: #edf8fc;
+}
+
+.drop-zone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.drop-zone strong {
+  color: var(--fti-blue-dark);
+  font-size: 21px;
+}
+
+.drop-zone span,
+.setting-row small,
+.toggle-row small,
+.file-card span,
+#progressText,
+.log-panel li {
+  color: var(--tool-muted);
+}
+
+.file-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--tool-line);
+  border-radius: 6px;
+  background: var(--tool-soft);
+}
+
+.file-card p,
+.label {
+  margin: 0 0 4px;
+  color: var(--tool-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.file-card strong,
+.file-card span {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.primary-action,
+.download-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--fti-blue);
+  border-radius: 4px;
+  color: #fff;
+  background: var(--fti-blue);
+  cursor: pointer;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.primary-action {
+  margin-top: 14px;
+}
+
+.primary-action:hover:not(:disabled),
+.download-link:hover {
+  border-color: var(--fti-blue-dark);
+  background: var(--fti-blue-dark);
+}
+
+.settings-header,
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-header h2,
+.log-header h2 {
+  margin: 0;
+  color: var(--fti-blue-dark);
+  font-size: 17px;
+}
+
+.text-button {
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.setting-row,
+.toggle-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 16px 0;
+  border-top: 1px solid var(--tool-line);
+}
+
+.setting-row span,
+.toggle-row span {
+  display: grid;
+  gap: 3px;
+}
+
+.setting-row input[type="number"] {
+  width: 86px;
+  min-height: 38px;
+  border: 1px solid var(--tool-line);
+  border-radius: 4px;
+  padding: 0 10px;
+  font-weight: 800;
+}
+
+.toggle-row input {
+  width: 42px;
+  height: 24px;
+  accent-color: var(--fti-cyan);
+}
+
+.progress-panel,
+.result-panel,
+.log-panel {
+  margin-top: 18px;
+}
+
+.meter {
+  height: 9px;
+  overflow: hidden;
+  background: #e5ebef;
+}
+
+.meter span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--fti-cyan), var(--fti-blue), var(--fti-orange));
+  transition: width 220ms ease;
+}
+
+#progressText {
+  margin: 10px 0 0;
+  font-weight: 700;
+}
+
+.result-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr minmax(230px, 0.9fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.result-summary strong {
+  font-size: 21px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.stat {
+  min-width: 0;
+  border: 1px solid var(--tool-line);
+  padding: 12px;
+  background: var(--tool-soft);
+}
+
+.stat strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--fti-blue-dark);
+  font-size: 19px;
+  overflow-wrap: anywhere;
+}
+
+.stat span {
+  color: var(--tool-muted);
+  font-size: 12px;
+}
+
+.log-panel ol {
+  display: grid;
+  gap: 8px;
+  max-height: 230px;
+  margin: 0;
+  padding-left: 22px;
+  overflow: auto;
+}
+
+.log-panel li.error {
+  color: #a3131b;
+  font-weight: 800;
+}
+
+.hidden {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .slimmer-grid,
+  .result-summary,
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .drop-zone {
+    min-height: 220px;
+  }
+}

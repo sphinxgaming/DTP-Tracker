@@ -11,6 +11,7 @@ This is a local web-based replacement for the Excel/VBA DTP tracker. It keeps th
 - import old CSV/Excel rows that use the standard timesheet columns
 - generate a Word timesheet from the visible filtered rows
 - show all official tracker times in Dubai time (`Asia/Dubai`, UTC+4)
+- open the hosted PPTX Slimmer and Image Extractor from the top toolbar
 
 The Word export uses `public/timesheet-template.docx` as the base template, so the official logo/footer/signature layout stays with the generated file.
 
@@ -38,6 +39,15 @@ The `Validate ServiceNow` button validates only the rows currently visible after
 The queue copies/opens each visible `Request #` one by one. Enter the ServiceNow portal values for `Graphic Design Category`, `Number Of Slides`, and Bryan `Production time (in mins)`. The tracker updates `Category of work` only; slide and minute differences are shown as mismatch notes and are not auto-changed.
 
 A deployed website cannot click or read a separate logged-in ServiceNow Chrome tab, and ServiceNow stays read-only.
+
+## Built-In DTP Tools
+
+Signed-in users can open two tools from the tracker header:
+
+- `PPTX Slimmer` optimizes `.pptx` files in the browser. The presentation stays on the user's device and is not uploaded to the tracker server.
+- `Image Extractor` scans public website URLs through the authenticated tracker server and extracts images from uploaded images, PDF, PPTX, DOCX, XLSX, ZIP, and OpenDocument files in the browser.
+
+Website extraction requires internet access and some target sites may block automated requests. Uploaded-file extraction still works without sending the uploaded file to the tracker server.
 
 ## Run Locally With Installed Node
 

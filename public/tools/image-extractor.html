@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Image Extractor | DTP Tracker</title>
+    <link rel="stylesheet" href="/tools/tool-shell.css?v=20260716-integrated-tools">
+    <link rel="stylesheet" href="/tools/image-extractor.css?v=20260716-integrated-tools">
+  </head>
+  <body class="tool-loading">
+    <header class="tool-header">
+      <div class="tool-brand">
+        <small>FTI Consulting</small>
+        <strong>DTP Tool Suite</strong>
+      </div>
+      <nav class="tool-nav" aria-label="Tool navigation">
+        <span class="tool-user" data-tool-user>Checking account...</span>
+        <a class="tool-button" href="/tools/pptx-slimmer.html">PPTX Slimmer</a>
+        <a class="tool-button" href="/">Back to Tracker</a>
+      </nav>
+    </header>
+
+    <main class="tool-page">
+      <div class="tool-titlebar extractor-titlebar">
+        <div>
+          <p>Image utility</p>
+          <h1>Image Extractor</h1>
+        </div>
+        <div class="title-actions">
+          <span id="statusText">Ready</span>
+          <button id="clearBtn" type="button">Clear</button>
+          <button class="primary" id="downloadSelectedBtn" type="button">Download selected</button>
+        </div>
+      </div>
+
+      <section class="extract-panel" aria-label="Extraction source">
+        <div class="mode-tabs" role="tablist" aria-label="Extraction mode">
+          <button class="mode-tab is-active" data-mode="single" type="button" aria-pressed="true">Single site</button>
+          <button class="mode-tab" data-mode="multiple" type="button" aria-pressed="false">Multiple sites</button>
+          <button class="mode-tab" data-mode="files" type="button" aria-pressed="false">Files</button>
+        </div>
+
+        <div class="source-view is-active" data-view="single">
+          <div class="url-submit">
+            <input id="singleUrlInput" type="url" spellcheck="false" placeholder="Enter a public URL, such as example.com">
+            <button class="primary" id="scanBtn" type="button">Extract</button>
+          </div>
+        </div>
+
+        <div class="source-view" data-view="multiple">
+          <textarea id="urlInput" spellcheck="false" placeholder="https://example.com&#10;https://example.org/gallery"></textarea>
+          <button class="primary multiple-action" id="scanMultipleBtn" type="button">Extract sites</button>
+        </div>
+
+        <div class="source-view" data-view="files">
+          <div id="dropZone" class="drop-zone" tabindex="0">
+            <input id="fileInput" type="file" multiple hidden accept="image/*,.pdf,.pptx,.docx,.xlsx,.zip,.odp,.ods,.odt">
+            <strong>Drop files here</strong>
+            <span>PDF, PPTX, DOCX, XLSX, ZIP, OpenDocument, or image files</span>
+            <button id="pickFilesBtn" type="button">Choose files</button>
+          </div>
+        </div>
+
+        <div class="options-row">
+          <label>
+            <input id="includeCss" type="checkbox" checked>
+            Include CSS images
+          </label>
+          <label>
+            <input id="followLinks" type="checkbox">
+            Follow same-domain pages
+          </label>
+          <label class="page-limit">
+            Page limit
+            <input id="pageLimit" min="1" max="40" step="1" type="number" value="12">
+          </label>
+        </div>
+      </section>
+
+      <section class="results-band" aria-label="Extracted images">
+        <div class="results-toolbar">
+          <div class="result-count">
+            <strong id="countText">0 images</strong>
+            <span id="selectedText">0 selected</span>
+          </div>
+          <div class="filter-row">
+            <input id="searchInput" type="search" placeholder="Search images">
+            <label>
+              Min width
+              <input id="minWidthInput" min="0" step="100" type="number" value="0">
+            </label>
+            <select id="formatFilter" aria-label="Image format">
+              <option value="all">All formats</option>
+              <option value="jpg">JPG</option>
+              <option value="png">PNG</option>
+              <option value="webp">WEBP</option>
+              <option value="gif">GIF</option>
+              <option value="svg">SVG</option>
+              <option value="other">Other</option>
+            </select>
+            <select id="sortSelect" aria-label="Sort results">
+              <option value="resolution">Resolution</option>
+              <option value="size">File size</option>
+              <option value="source">Source</option>
+            </select>
+            <button id="selectVisibleBtn" type="button">Select visible</button>
+            <button id="deselectBtn" type="button">Deselect</button>
+          </div>
+        </div>
+
+        <div id="warnings" class="warnings" hidden></div>
+        <div id="emptyState" class="empty-state">No images yet</div>
+        <div id="resultsGrid" class="results-grid" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script src="/tools/tool-auth.js?v=20260716-integrated-tools"></script>
+    <script src="/tools/vendor/jszip.min.js"></script>
+    <script src="/tools/image-extractor.js?v=20260716-integrated-tools" defer></script>
+  </body>
+</html>

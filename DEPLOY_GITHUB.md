@@ -10,6 +10,7 @@ Important included files:
 
 - `server.js`
 - `package.json`
+- `package-lock.json`
 - `public/`
 - `render.yaml`
 - `Procfile`
@@ -33,6 +34,8 @@ The live local data remains in `data/tracker.json`. The deploy seed is `data/tra
 5. Open the deployed URL after the build finishes.
 6. Log in with the Bryan admin account, then create designer accounts from the `Admin` button.
 
+Render installs the browser PDF dependency during the build. Keep the existing Node 20 setting and the `npm install --omit=optional` build command from `render.yaml`.
+
 The app stores deployed data in `DATA_DIR=/var/data`. Future deployed edits are saved to that disk, not to GitHub.
 
 The first admin is bootstrapped by server configuration. If the deployed disk already has tracker rows but no users yet, those existing rows are assigned to the Bryan admin account so the data is protected instead of lost.
@@ -54,6 +57,15 @@ For this July 2026 package, `data/tracker.seed.json` was refreshed from the live
 ## ServiceNow Portal Validation
 
 The `Validate ServiceNow` button uses a guided ServiceNow Portal queue. No ServiceNow API credentials are required in Render. It works on the tracker rows currently visible after filters, copies/opens each `Request #`, updates tracker `Category of work` only, and reports slide/minute mismatches without changing them.
+
+## Hosted PPTX And Image Tools
+
+The tracker header includes:
+
+- `PPTX Slimmer`, which processes presentations inside the user's browser.
+- `Image Extractor`, which processes uploaded files inside the browser and uses the authenticated Render backend only when scanning public website URLs.
+
+No extra Render disk is needed for these tools, and they do not modify tracker rows.
 
 ## Privacy Note
 
