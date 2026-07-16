@@ -88,7 +88,7 @@ select:focus {
 .app-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 24px;
   min-height: 84px;
   padding: 18px clamp(18px, 4vw, 56px);
@@ -119,6 +119,7 @@ h1 span {
 .header-clock {
   display: grid;
   gap: 3px;
+  margin-left: auto;
   min-width: 250px;
   text-align: right;
 }
@@ -1030,6 +1031,7 @@ body.auth-locked .auth-gate {
   }
 
   .header-clock {
+    margin-left: 0;
     min-width: 0;
     text-align: left;
   }
