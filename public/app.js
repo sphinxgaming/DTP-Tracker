@@ -934,6 +934,7 @@ function renderTable() {
   for (const task of rows) {
     const tr = document.createElement("tr");
     if (task.id === activeId) tr.classList.add("active-row");
+    if (selectedTaskIds.has(task.id)) tr.classList.add("selected-row");
     if (task.pauseStartedAt && task.id !== activeId && !task.finishedAt) tr.classList.add("parked-row");
     tr.dataset.id = task.id;
     tr.innerHTML = `

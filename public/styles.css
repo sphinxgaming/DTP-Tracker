@@ -715,8 +715,23 @@ tbody tr.active-row {
   background: #f4fbff;
 }
 
+tbody tr.selected-row {
+  background: #eaf6ff;
+  box-shadow: inset 5px 0 0 var(--fti-cyan);
+}
+
+tbody tr.selected-row:hover {
+  background: #dff1fc;
+}
+
 tbody tr.parked-row {
   background: #fffaf0;
+}
+
+tbody tr:focus-within {
+  background: #eef8ff;
+  outline: 2px solid rgba(22, 169, 220, 0.38);
+  outline-offset: -2px;
 }
 
 tbody tr:hover {
