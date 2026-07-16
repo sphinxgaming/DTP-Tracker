@@ -3,6 +3,7 @@ const DUBAI_TZ = "Asia/Dubai";
 const els = {};
 let state = null;
 let currentUser = null;
+let activeViewUserId = "";
 let serverOffsetMs = 0;
 let toastTimer = null;
 let breakPlannerTouched = false;
@@ -259,11 +260,6 @@ function bindElements() {
     "loginForm",
     "loginUsername",
     "loginPassword",
-    "setupForm",
-    "setupCode",
-    "setupDisplayName",
-    "setupUsername",
-    "setupPassword",
     "adminModal",
     "adminCloseBtn",
     "createUserForm",
@@ -364,7 +360,6 @@ function bindEvents() {
   els.taskRows.addEventListener("change", handleTableChange);
   els.taskRows.addEventListener("click", handleTableClick);
   els.loginForm.addEventListener("submit", loginUser);
-  els.setupForm.addEventListener("submit", setupFirstAdmin);
   els.logoutBtn.addEventListener("click", logoutUser);
   els.adminPanelBtn.addEventListener("click", openAdminPanel);
   els.adminCloseBtn.addEventListener("click", closeAdminPanel);
@@ -375,9 +370,13 @@ function bindEvents() {
 }
 
 async function api(path, options = {}) {
+  const viewHeaders = currentUser?.role === "admin" && activeViewUserId
+    ? { "x-dtp-view-user": activeViewUserId }
+    : {};
   const response = await fetch(path, {
     headers: {
       "content-type": "application/json",
+      ...viewHeaders,
       ...(options.headers || {})
     },
     ...options
@@ -387,7 +386,9 @@ async function api(path, options = {}) {
     if (response.status === 401) {
       currentUser = null;
       state = null;
-      showAuthGate({ setupRequired: Boolean(payload.setupRequired) });
+      activeViewUserId = "";
+      localStorage.removeItem("adminViewUserId");
+      showAuthGate();
     }
     throw new Error(payload.error || `Request failed: ${response.status}`);
   }
@@ -399,30 +400,28 @@ async function initializeAuth() {
     const status = await api("/api/auth/status");
     if (status.authenticated && status.user) {
       currentUser = status.user;
+      activeViewUserId = currentUser.role === "admin" ? (localStorage.getItem("adminViewUserId") || "") : "";
       hideAuthGate();
       renderAuthBar();
       await loadState();
       return;
     }
-    showAuthGate({ setupRequired: status.setupRequired });
+    showAuthGate();
   } catch (error) {
-    showAuthGate({ setupRequired: false });
+    showAuthGate();
     showToast(error.message);
   }
 }
 
-function showAuthGate({ setupRequired = false } = {}) {
+function showAuthGate() {
   document.body.classList.add("auth-locked");
   els.authGate.hidden = false;
-  els.loginForm.hidden = setupRequired;
-  els.setupForm.hidden = !setupRequired;
-  els.authTitle.textContent = setupRequired ? "Create first admin" : "Sign in";
-  els.authIntro.textContent = setupRequired
-    ? "Create the first admin account with the private setup code. Existing tracker rows will be assigned to this admin."
-    : "Use your designer account to open your private tracker rows.";
+  els.loginForm.hidden = false;
+  els.authTitle.textContent = "Sign in";
+  els.authIntro.textContent = "Use your account to open your tracker rows.";
   els.logoutBtn.hidden = true;
   els.adminPanelBtn.hidden = true;
-  els.currentUserBadge.textContent = setupRequired ? "Setup required" : "Not signed in";
+  els.currentUserBadge.textContent = "Not signed in";
 }
 
 function hideAuthGate() {
@@ -433,6 +432,7 @@ function hideAuthGate() {
 
 function renderAuthBar() {
   const user = currentUser || state?.currentUser || state?.auth?.user;
+  const viewUser = state?.viewUser || state?.auth?.viewUser;
   currentUser = user || currentUser;
   if (!user) {
     els.currentUserBadge.textContent = "Not signed in";
@@ -440,7 +440,11 @@ function renderAuthBar() {
     els.adminPanelBtn.hidden = true;
     return;
   }
-  els.currentUserBadge.textContent = `${user.displayName || user.username} (${user.role})`;
+  const base = `${user.displayName || user.username} (${user.role})`;
+  const viewingOther = user.role === "admin" && viewUser && viewUser.id !== user.id;
+  els.currentUserBadge.textContent = viewingOther
+    ? `${base} viewing ${viewUser.displayName || viewUser.username}`
+    : base;
   els.logoutBtn.hidden = false;
   els.adminPanelBtn.hidden = user.role !== "admin";
 }
@@ -456,33 +460,12 @@ async function loginUser(event) {
       })
     });
     currentUser = data.user;
+    activeViewUserId = "";
+    localStorage.removeItem("adminViewUserId");
     els.loginPassword.value = "";
     hideAuthGate();
     await loadState();
     showToast("Logged in.");
-  } catch (error) {
-    showToast(error.message);
-  }
-}
-
-async function setupFirstAdmin(event) {
-  event.preventDefault();
-  try {
-    const data = await api("/api/auth/setup", {
-      method: "POST",
-      body: JSON.stringify({
-        displayName: els.setupDisplayName.value,
-        username: els.setupUsername.value,
-        password: els.setupPassword.value,
-        setupCode: els.setupCode.value
-      })
-    });
-    currentUser = data.user;
-    els.setupCode.value = "";
-    els.setupPassword.value = "";
-    hideAuthGate();
-    await loadState();
-    showToast("Admin created. Your existing tracker rows are protected under this account.");
   } catch (error) {
     showToast(error.message);
   }
@@ -496,9 +479,11 @@ async function logoutUser() {
   }
   currentUser = null;
   state = null;
+  activeViewUserId = "";
+  localStorage.removeItem("adminViewUserId");
   selectedTaskIds.clear();
   closeAdminPanel();
-  showAuthGate({ setupRequired: false });
+  showAuthGate();
   showToast("Logged out.");
 }
 
@@ -507,6 +492,14 @@ async function loadState(silent = false, options = {}) {
     const data = await api("/api/state");
     setState(data, options);
   } catch (error) {
+    if (activeViewUserId && /Designer account not found/i.test(error.message)) {
+      activeViewUserId = "";
+      localStorage.removeItem("adminViewUserId");
+      const data = await api("/api/state");
+      setState(data, options);
+      showToast("That designer account was not found. Showing your tracker.");
+      return;
+    }
     if (!silent) showToast(error.message);
   }
 }
@@ -701,12 +694,14 @@ function renderAdminUsers(users) {
     return;
   }
   els.adminUsers.innerHTML = users.map((user) => `
-    <article class="admin-user ${user.active ? "" : "inactive"}" data-user-id="${escapeAttr(user.id)}">
+    <article class="admin-user ${user.active ? "" : "inactive"} ${activeViewUserId === user.id || (!activeViewUserId && currentUser?.id === user.id) ? "viewing" : ""}" data-user-id="${escapeAttr(user.id)}" data-user-role="${escapeAttr(user.role)}">
       <div>
         <strong>${escapeHtml(user.displayName || user.username)}</strong>
         <span>${escapeHtml(user.username)} | ${escapeHtml(user.role)} | ${Number(user.rowCount || 0)} row(s)</span>
       </div>
       <div class="admin-user-actions">
+        <button type="button" data-admin-action="view-tracker">${activeViewUserId === user.id || (!activeViewUserId && currentUser?.id === user.id) ? "Viewing" : "View tracker"}</button>
+        <button type="button" data-admin-action="toggle-role">${user.role === "admin" ? "Make designer" : "Make admin"}</button>
         <button type="button" data-admin-action="toggle-active">${user.active ? "Deactivate" : "Activate"}</button>
         <button type="button" data-admin-action="reset-password">Reset password</button>
       </div>
@@ -743,10 +738,39 @@ async function createDesignerUser(event) {
 async function handleAdminUserAction(event) {
   const card = event.target.closest(".admin-user");
   const userId = card?.dataset.userId;
+  const userRole = card?.dataset.userRole || "designer";
   const action = event.target.dataset.adminAction;
   if (!userId || !action) return;
 
   try {
+    if (action === "view-tracker") {
+      activeViewUserId = userId === currentUser?.id ? "" : userId;
+      if (activeViewUserId) {
+        localStorage.setItem("adminViewUserId", activeViewUserId);
+      } else {
+        localStorage.removeItem("adminViewUserId");
+      }
+      selectedTaskIds.clear();
+      closeAdminPanel();
+      await loadState();
+      showToast(activeViewUserId ? "Designer tracker opened." : "Your tracker opened.");
+      return;
+    }
+
+    if (action === "toggle-role") {
+      const nextRole = userRole === "admin" ? "designer" : "admin";
+      const label = nextRole === "admin" ? "make this user an admin" : "make this admin a designer";
+      if (!confirm(`Are you sure you want to ${label}?`)) return;
+      await api(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role: nextRole })
+      });
+      await loadAdminUsers();
+      if (state?.viewUser?.id === userId) await loadState(true, { preserveScroll: true });
+      showToast(nextRole === "admin" ? "User promoted to admin." : "User changed to designer.");
+      return;
+    }
+
     if (action === "toggle-active") {
       const isActive = !card.classList.contains("inactive");
       await api(`/api/admin/users/${encodeURIComponent(userId)}`, {

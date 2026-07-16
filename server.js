@@ -16,7 +16,9 @@ const SEED_DB_FILE = process.env.SEED_DB_FILE || path.join(ROOT, "data", "tracke
 const TEMPLATE_FILE = path.join(PUBLIC_DIR, "timesheet-template.docx");
 const DUBAI_TZ = "Asia/Dubai";
 const SERVICE_NOW_BATCH_LIMIT = 300;
-const ADMIN_SETUP_CODE = envValue("ADMIN_SETUP_CODE", "DTP_ADMIN_SETUP_CODE") || "BryanFTIAdmin2026!";
+const ADMIN_BOOTSTRAP_USERNAME = normalizeUsername(envValue("ADMIN_BOOTSTRAP_USERNAME", "ADMIN_USERNAME") || "bryan");
+const ADMIN_BOOTSTRAP_DISPLAY_NAME = envValue("ADMIN_BOOTSTRAP_DISPLAY_NAME", "ADMIN_DISPLAY_NAME") || "Bryan Logapo";
+const ADMIN_BOOTSTRAP_PASSWORD = envValue("ADMIN_BOOTSTRAP_PASSWORD", "ADMIN_PASSWORD", "ADMIN_SETUP_CODE", "DTP_ADMIN_SETUP_CODE") || "BryanFTIAdmin2026!";
 
 const SERVICE_NOW_ENV = {
   instanceUrl: envValue("SERVICENOW_INSTANCE_URL", "SN_INSTANCE_URL"),
@@ -118,6 +120,9 @@ async function ensureDb() {
     dbCache = await loadSeedDb();
     await saveDb(dbCache);
   }
+  if (bootstrapAdminIfNeeded(dbCache)) {
+    await saveDb(dbCache);
+  }
   return dbCache;
 }
 
@@ -202,7 +207,7 @@ function ensureUserRuntime(db, userId) {
   }
 }
 
-function runtimeDbForUser(rootDb, user) {
+function runtimeDbForUser(rootDb, user, actor = user) {
   ensureUserRuntime(rootDb, user.id);
   const scoped = {
     ...rootDb,
@@ -215,9 +220,31 @@ function runtimeDbForUser(rootDb, user) {
   Object.defineProperties(scoped, {
     __root: { value: rootDb },
     __ownerId: { value: user.id },
-    __user: { value: user }
+    __user: { value: actor },
+    __viewUser: { value: user }
   });
   return scoped;
+}
+
+function runtimeDbForView(rootDb, actor, viewUser) {
+  return runtimeDbForUser(rootDb, viewUser, actor);
+}
+
+function runtimeDbForRequest(rootDb, actor, req, res) {
+  if (actor.role !== "admin") return runtimeDbForUser(rootDb, actor);
+
+  const viewUserId = safeString(req.headers["x-dtp-view-user"], 120);
+  if (!viewUserId || viewUserId === actor.id || viewUserId === "self") {
+    return runtimeDbForUser(rootDb, actor);
+  }
+
+  const viewUser = rootDb.users.find((user) => user.id === viewUserId);
+  if (!viewUser) {
+    json(res, 404, { error: "Designer account not found." });
+    return null;
+  }
+
+  return runtimeDbForView(rootDb, actor, viewUser);
 }
 
 function rootDbOf(db) {
@@ -348,6 +375,34 @@ function createUser(db, { username, displayName, password, role = "designer", mu
   return user;
 }
 
+function bootstrapAdminIfNeeded(db) {
+  if (!db || db.users.length > 0) return false;
+  try {
+    const admin = createUser(db, {
+      username: ADMIN_BOOTSTRAP_USERNAME || "bryan",
+      displayName: ADMIN_BOOTSTRAP_DISPLAY_NAME || "Bryan Logapo",
+      password: ADMIN_BOOTSTRAP_PASSWORD,
+      role: "admin"
+    });
+    for (const task of db.tasks) {
+      if (!task.ownerId) task.ownerId = admin.id;
+    }
+    db.userSettings[admin.id] = {
+      ...initialDb.settings,
+      ...(db.settings || {})
+    };
+    db.userTimers[admin.id] = {
+      ...initialDb.timer,
+      ...(db.timer || {})
+    };
+    audit(db, "auth.bootstrapAdmin", { userId: admin.id, username: admin.username });
+    return true;
+  } catch (error) {
+    console.warn(`Could not bootstrap admin account: ${error.message || error}`);
+    return false;
+  }
+}
+
 function validatePassword(password) {
   if (String(password || "").length < 8) {
     throw new Error("Password must be at least 8 characters.");
@@ -383,7 +438,7 @@ function createSession(db, user) {
 function requireAuthenticated(db, req, res) {
   const auth = currentSession(db, req);
   if (!auth) {
-    json(res, 401, { error: "Please log in.", authenticated: false, setupRequired: db.users.length === 0 });
+    json(res, 401, { error: "Please log in.", authenticated: false, setupRequired: false });
     return null;
   }
   return auth.user;
@@ -604,8 +659,10 @@ function derivedState(db) {
     serverNow: nowIso(),
     dubaiTimeZone: DUBAI_TZ,
     currentUser: safeUser(db.__user),
+    viewUser: safeUser(db.__viewUser || db.__user),
     auth: db.__user ? {
       user: safeUser(db.__user),
+      viewUser: safeUser(db.__viewUser || db.__user),
       isAdmin: db.__user.role === "admin"
     } : null,
     timer: {
@@ -1812,43 +1869,13 @@ async function handleApi(req, res, url) {
     const auth = currentSession(rootDb, req);
     return json(res, 200, {
       authenticated: Boolean(auth),
-      setupRequired: rootDb.users.length === 0,
+      setupRequired: false,
       user: auth ? safeUser(auth.user) : null
     });
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/setup") {
-    if (rootDb.users.length > 0) return json(res, 409, { error: "Admin setup is already complete." });
-    const body = await readBody(req);
-    if (String(body.setupCode || "") !== ADMIN_SETUP_CODE) {
-      return json(res, 403, { error: "Invalid admin setup code." });
-    }
-    try {
-      const admin = createUser(rootDb, {
-        username: body.username || "admin",
-        displayName: body.displayName || body.username || "Admin",
-        password: body.password,
-        role: "admin"
-      });
-      for (const task of rootDb.tasks) {
-        if (!task.ownerId) task.ownerId = admin.id;
-      }
-      rootDb.userSettings[admin.id] = {
-        ...initialDb.settings,
-        ...(rootDb.settings || {})
-      };
-      rootDb.userTimers[admin.id] = {
-        ...initialDb.timer,
-        ...(rootDb.timer || {})
-      };
-      const { token } = createSession(rootDb, admin);
-      audit(rootDb, "auth.setup", { userId: admin.id, username: admin.username });
-      await saveDb(rootDb);
-      setSessionCookie(req, res, token);
-      return json(res, 201, { authenticated: true, setupRequired: false, user: safeUser(admin) });
-    } catch (error) {
-      return json(res, 400, { error: error.message || "Setup failed." });
-    }
+    return json(res, 410, { error: "Admin setup is disabled. The Bryan admin account is created by server configuration." });
   }
 
   if (req.method === "POST" && url.pathname === "/api/auth/login") {
@@ -1877,7 +1904,8 @@ async function handleApi(req, res, url) {
 
   const authUser = requireAuthenticated(rootDb, req, res);
   if (!authUser) return;
-  const db = runtimeDbForUser(rootDb, authUser);
+  const db = runtimeDbForRequest(rootDb, authUser, req, res);
+  if (!db) return;
 
   if (finalizePlannedBreakIfDue(db)) {
     await saveDb(db);

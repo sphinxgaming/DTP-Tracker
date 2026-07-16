@@ -14,7 +14,11 @@ services:
         value: /var/data
       - key: NODE_VERSION
         value: 20
-      - key: ADMIN_SETUP_CODE
+      - key: ADMIN_BOOTSTRAP_USERNAME
+        value: bryan
+      - key: ADMIN_BOOTSTRAP_DISPLAY_NAME
+        value: Bryan Logapo
+      - key: ADMIN_BOOTSTRAP_PASSWORD
         sync: false
       - key: SERVICENOW_INSTANCE_URL
         value: https://fticonsulting.service-now.com

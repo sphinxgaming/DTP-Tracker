@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>DTP Time Tracker</title>
-    <link rel="stylesheet" href="/styles.css?v=20260716-auth-admin-code">
+    <link rel="stylesheet" href="/styles.css?v=20260716-admin-view">
     <link rel="stylesheet" href="/servicenow-validation.css?v=20260715-servicenow-portal-queue">
   </head>
   <body class="auth-locked">
@@ -220,25 +220,6 @@
           </label>
           <button type="submit">Login</button>
         </form>
-        <form id="setupForm" class="auth-form" hidden>
-          <label>
-            Admin setup code
-            <input id="setupCode" type="password" autocomplete="one-time-code">
-          </label>
-          <label>
-            Admin name
-            <input id="setupDisplayName" type="text" autocomplete="name" value="Bryan Logapo">
-          </label>
-          <label>
-            Admin username
-            <input id="setupUsername" type="text" autocomplete="username" value="bryan">
-          </label>
-          <label>
-            Admin password
-            <input id="setupPassword" type="password" autocomplete="new-password">
-          </label>
-          <button type="submit">Create first admin</button>
-        </form>
       </div>
     </section>
 
@@ -248,6 +229,7 @@
           <div>
             <p class="eyebrow">Admin</p>
             <h2 id="adminTitle">Designer accounts</h2>
+            <p id="adminViewHint">Open a designer to view their private tracker rows.</p>
           </div>
           <button id="adminCloseBtn" type="button">Close</button>
         </header>
@@ -279,7 +261,7 @@
 
     <datalist id="categoryOptions"></datalist>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260716-auth-admin-code" defer></script>
+    <script src="/app.js?v=20260716-admin-view" defer></script>
     <script src="/servicenow-validation.js?v=20260715-servicenow-portal-queue" defer></script>
   </body>
 </html>

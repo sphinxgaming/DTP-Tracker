@@ -31,13 +31,13 @@ The live local data remains in `data/tracker.json`. The deploy seed is `data/tra
 3. Render will read `render.yaml`.
 4. Keep the persistent disk enabled at `/var/data`.
 5. Open the deployed URL after the build finishes.
-6. Create the first admin account on the setup screen.
+6. Log in with the Bryan admin account, then create designer accounts from the `Admin` button.
 
 The app stores deployed data in `DATA_DIR=/var/data`. Future deployed edits are saved to that disk, not to GitHub.
 
-The first admin setup is one-time. If the deployed disk already has tracker rows but no users yet, those existing rows are assigned to the first admin account so the data is protected instead of lost.
+The first admin is bootstrapped by server configuration. If the deployed disk already has tracker rows but no users yet, those existing rows are assigned to the Bryan admin account so the data is protected instead of lost.
 
-Set `ADMIN_SETUP_CODE` in Render to a private code before sharing the URL broadly. The setup screen asks for that code before it can create the first admin.
+Set `ADMIN_BOOTSTRAP_PASSWORD` in Render before deploying a fresh service. Existing deployed services that already have users keep those users and ignore the bootstrap password.
 
 ## Updating An Existing Tracker Without Losing Rows
 
@@ -57,4 +57,4 @@ The `Validate ServiceNow` button uses a guided ServiceNow Portal queue. No Servi
 
 ## Privacy Note
 
-`data/tracker.seed.json` contains the current tracker rows for first-time deployment. Keep the GitHub repo private if those records should not be visible to others. After login setup, each designer only sees their own rows.
+`data/tracker.seed.json` contains the current tracker rows for first-time deployment. Keep the GitHub repo private if those records should not be visible to others. After login, each designer only sees their own rows.

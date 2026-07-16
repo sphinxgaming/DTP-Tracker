@@ -20,14 +20,16 @@ Time budget input treats whole numbers as minutes (`10` = 10 minutes, `190` = 19
 
 The tracker has built-in accounts:
 
-- first launch shows a one-time `Create first admin` screen
-- first-admin setup requires the private setup code
-- the first admin receives/protects any existing tracker rows
+- the login page only shows username/password
+- a fresh install automatically creates the configured Bryan admin account
+- the Bryan admin receives/protects any existing tracker rows
 - admins can add designer accounts from the `Admin` button in the header
+- admins can promote a designer to admin or change an admin back to designer
+- admins can open a designer account from the Admin panel to view that designer's tracker rows
 - each designer sees only their own tracker rows and timer state
 - new designer accounts start blank
 
-Keep the setup code and first admin password private. If this is deployed on Render, create the first admin immediately after the deploy finishes. For production/internal rollout, set `ADMIN_SETUP_CODE` in Render to your own private code.
+Keep the admin password private. For production/internal rollout, set `ADMIN_BOOTSTRAP_PASSWORD` in Render before deploying a fresh service. Existing deployed services that already have users keep those users and ignore the bootstrap password.
 
 ## ServiceNow Validation
 

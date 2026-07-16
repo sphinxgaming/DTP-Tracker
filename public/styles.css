@@ -913,6 +913,12 @@ body.auth-locked .auth-gate {
   color: #fff;
 }
 
+.admin-card > header p:not(.eyebrow) {
+  margin: 4px 0 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+}
+
 .admin-create {
   display: grid;
   grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) 130px auto;
@@ -938,6 +944,11 @@ body.auth-locked .auth-gate {
   padding: 12px;
   border: 1px solid var(--line);
   background: #fff;
+}
+
+.admin-user.viewing {
+  border-color: var(--fti-blue);
+  box-shadow: inset 4px 0 0 var(--fti-blue);
 }
 
 .admin-user.inactive {
