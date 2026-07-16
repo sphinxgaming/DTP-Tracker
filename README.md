@@ -32,6 +32,12 @@ The tracker has built-in accounts:
 
 Keep the admin password private. For production/internal rollout, set `ADMIN_BOOTSTRAP_PASSWORD` in Render before deploying a fresh service. Existing deployed services that already have users keep those users and ignore the bootstrap password.
 
+## First-Login Guided Tour
+
+New accounts see a `Get Started` welcome screen after their first login. The tour highlights the tracker in workflow order: job intake, review and production timing, pause/resume, breaks, DXB ETA, filters, editable rows, import/export, dashboard, hosted tools, and admin controls when applicable.
+
+Completing or skipping the tour is saved per user. A `Tour` button remains in the header so anyone can replay it later.
+
 ## ServiceNow Validation
 
 The `Validate ServiceNow` button validates only the rows currently visible after Search/From/To/Category filters. Because the team can only use the ServiceNow portal, this runs as a guided portal queue instead of an API integration.

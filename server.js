@@ -197,6 +197,7 @@ function normalizeUser(user) {
     passwordHash: safeString(user.passwordHash, 300),
     passwordSalt: safeString(user.passwordSalt, 120),
     mustChangePassword: Boolean(user.mustChangePassword),
+    onboardingCompleted: user.onboardingCompleted !== false,
     createdAt: safeString(user.createdAt, 80) || nowIso(),
     updatedAt: safeString(user.updatedAt, 80) || nowIso()
   };
@@ -361,7 +362,8 @@ function safeUser(user) {
     displayName: user.displayName,
     role: user.role,
     active: user.active !== false,
-    mustChangePassword: Boolean(user.mustChangePassword)
+    mustChangePassword: Boolean(user.mustChangePassword),
+    onboardingCompleted: user.onboardingCompleted !== false
   };
 }
 
@@ -370,7 +372,14 @@ function findUserByUsername(db, username) {
   return db.users.find((user) => user.username === clean) || null;
 }
 
-function createUser(db, { username, displayName, password, role = "designer", mustChangePassword = false }) {
+function createUser(db, {
+  username,
+  displayName,
+  password,
+  role = "designer",
+  mustChangePassword = false,
+  onboardingCompleted = false
+}) {
   const cleanUsername = normalizeUsername(username);
   if (!cleanUsername) throw new Error("Enter a username.");
   if (db.users.some((user) => user.username === cleanUsername)) throw new Error("Username already exists.");
@@ -386,6 +395,7 @@ function createUser(db, { username, displayName, password, role = "designer", mu
     passwordHash: hash,
     passwordSalt: salt,
     mustChangePassword: Boolean(mustChangePassword),
+    onboardingCompleted: Boolean(onboardingCompleted),
     createdAt: now,
     updatedAt: now
   };
@@ -401,7 +411,8 @@ function bootstrapAdminIfNeeded(db) {
       username: ADMIN_BOOTSTRAP_USERNAME || "bryan",
       displayName: ADMIN_BOOTSTRAP_DISPLAY_NAME || "Bryan Logapo",
       password: ADMIN_BOOTSTRAP_PASSWORD,
-      role: "admin"
+      role: "admin",
+      onboardingCompleted: true
     });
     for (const task of db.tasks) {
       if (!task.ownerId) task.ownerId = admin.id;
@@ -2321,6 +2332,19 @@ async function handleApi(req, res, url) {
 
   const authUser = requireAuthenticated(rootDb, req, res);
   if (!authUser) return;
+
+  if (req.method === "PATCH" && url.pathname === "/api/auth/onboarding") {
+    const body = await readBody(req);
+    authUser.onboardingCompleted = body.completed !== false;
+    authUser.updatedAt = nowIso();
+    audit(rootDb, "auth.onboarding", {
+      userId: authUser.id,
+      completed: authUser.onboardingCompleted
+    });
+    await saveDb(rootDb);
+    return json(res, 200, { user: safeUser(authUser) });
+  }
+
   const db = runtimeDbForRequest(rootDb, authUser, req, res);
   if (!db) return;
 

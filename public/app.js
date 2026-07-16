@@ -252,6 +252,7 @@ function bindElements() {
     "pieLegend",
     "toast",
     "currentUserBadge",
+    "tourBtn",
     "adminPanelBtn",
     "logoutBtn",
     "authGate",
@@ -420,8 +421,10 @@ function showAuthGate() {
   els.authTitle.textContent = "Sign in";
   els.authIntro.textContent = "Use your account to open your tracker rows.";
   els.logoutBtn.hidden = true;
+  els.tourBtn.hidden = true;
   els.adminPanelBtn.hidden = true;
   els.currentUserBadge.textContent = "Not signed in";
+  announceAuthUser(null, null);
 }
 
 function hideAuthGate() {
@@ -437,7 +440,9 @@ function renderAuthBar() {
   if (!user) {
     els.currentUserBadge.textContent = "Not signed in";
     els.logoutBtn.hidden = true;
+    els.tourBtn.hidden = true;
     els.adminPanelBtn.hidden = true;
+    announceAuthUser(null, null);
     return;
   }
   const base = `${user.displayName || user.username} (${user.role})`;
@@ -446,7 +451,18 @@ function renderAuthBar() {
     ? `${base} viewing ${viewUser.displayName || viewUser.username}`
     : base;
   els.logoutBtn.hidden = false;
+  els.tourBtn.hidden = false;
   els.adminPanelBtn.hidden = user.role !== "admin";
+  announceAuthUser(user, viewUser);
+}
+
+function announceAuthUser(user, viewUser) {
+  window.dispatchEvent(new CustomEvent("dtp:auth-user", {
+    detail: {
+      user: user || null,
+      viewUser: viewUser || null
+    }
+  }));
 }
 
 async function loginUser(event) {

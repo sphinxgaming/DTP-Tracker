@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>DTP Time Tracker</title>
-    <link rel="stylesheet" href="/styles.css?v=20260716-integrated-tools">
+    <link rel="stylesheet" href="/styles.css?v=20260716-onboarding-tour">
+    <link rel="stylesheet" href="/onboarding.css?v=20260716-onboarding-tour">
     <link rel="stylesheet" href="/servicenow-validation.css?v=20260715-servicenow-portal-queue">
   </head>
   <body class="auth-locked">
@@ -23,6 +24,7 @@
       </div>
       <div class="auth-bar">
         <span id="currentUserBadge">Not signed in</span>
+        <button id="tourBtn" type="button" hidden>Get Started</button>
         <button id="adminPanelBtn" type="button" hidden>Admin</button>
         <button id="logoutBtn" type="button" hidden>Logout</button>
       </div>
@@ -263,9 +265,47 @@
       </div>
     </section>
 
+    <section id="tourWelcome" class="tour-welcome" hidden>
+      <div class="tour-welcome-card" role="dialog" aria-modal="true" aria-labelledby="tourWelcomeTitle">
+        <p class="tour-kicker">DTP Tracker guide</p>
+        <h2 id="tourWelcomeTitle">Get Started</h2>
+        <p class="tour-welcome-copy">
+          Take a quick guided tour of the daily workflow, from adding a job to generating your timesheet.
+        </p>
+        <div class="tour-preview-grid" aria-label="Tour overview">
+          <span>Track review and production time</span>
+          <span>Plan DXB breaks and see your ETA</span>
+          <span>Edit, filter, import, and export rows</span>
+          <span>Use PPTX and image utilities</span>
+        </div>
+        <div class="tour-welcome-actions">
+          <button id="tourSkipWelcomeBtn" type="button">Skip tour</button>
+          <button id="tourStartBtn" class="primary" type="button">Get Started</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="tourLayer" class="tour-layer" hidden>
+      <div class="tour-blocker" aria-hidden="true"></div>
+      <div id="tourSpotlight" class="tour-spotlight" aria-hidden="true"></div>
+      <section id="tourCallout" class="tour-callout" role="dialog" aria-modal="true" aria-labelledby="tourStepTitle">
+        <div class="tour-step-meta">
+          <span id="tourProgress">Step 1 of 1</span>
+          <button id="tourCloseBtn" class="tour-close" type="button" aria-label="Skip guided tour">Skip</button>
+        </div>
+        <h2 id="tourStepTitle"></h2>
+        <p id="tourStepText"></p>
+        <div class="tour-callout-actions">
+          <button id="tourBackBtn" type="button">Back</button>
+          <button id="tourNextBtn" class="primary" type="button">Next</button>
+        </div>
+      </section>
+    </div>
+
     <datalist id="categoryOptions"></datalist>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260716-integrated-tools" defer></script>
+    <script src="/app.js?v=20260716-onboarding-tour" defer></script>
+    <script src="/onboarding.js?v=20260716-onboarding-tour" defer></script>
     <script src="/servicenow-validation.js?v=20260715-servicenow-portal-queue" defer></script>
   </body>
 </html>
