@@ -121,6 +121,26 @@ h1 span {
   color: #ccecf8;
 }
 
+.auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.auth-bar span {
+  color: #ccecf8;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.auth-bar button {
+  min-height: 30px;
+  padding: 0 12px;
+}
+
 .shell {
   width: min(1760px, 100%);
   margin: 0 auto;
@@ -792,6 +812,147 @@ tbody tr:hover {
   transform: translateY(0);
 }
 
+.auth-gate,
+.admin-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 46, 74, 0.52);
+}
+
+.auth-gate[hidden],
+.admin-modal[hidden] {
+  display: none;
+}
+
+.auth-card,
+.admin-card {
+  width: min(520px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 70px rgba(5, 46, 74, 0.28);
+}
+
+.auth-card {
+  padding: 24px;
+}
+
+.auth-card h2,
+.admin-card h2 {
+  margin: 0;
+  color: var(--fti-blue-dark);
+}
+
+.auth-card > p:not(.eyebrow) {
+  margin: 8px 0 18px;
+  color: var(--muted);
+}
+
+.auth-form {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-form label,
+.admin-create label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.auth-form button,
+.admin-create button {
+  background: var(--fti-blue);
+  color: #fff;
+  border-color: var(--fti-blue);
+}
+
+.admin-card {
+  width: min(940px, 100%);
+  max-height: min(86vh, 820px);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.admin-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  background: var(--fti-blue);
+  color: #fff;
+}
+
+.admin-card > header h2 {
+  color: #fff;
+}
+
+.admin-create {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) 130px auto;
+  gap: 10px;
+  align-items: end;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--soft);
+}
+
+.admin-users {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  padding: 16px;
+}
+
+.admin-user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.admin-user.inactive {
+  opacity: 0.62;
+  background: #f4f6f8;
+}
+
+.admin-user > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-user strong {
+  color: var(--fti-blue-dark);
+}
+
+.admin-user span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-user-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.empty-admin {
+  margin: 0;
+  color: var(--muted);
+}
+
 @media (max-width: 1050px) {
   .workspace-layout {
     grid-template-columns: 1fr;
@@ -857,6 +1018,17 @@ tbody tr:hover {
   }
 
   .planned-break {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-bar,
+  .admin-create,
+  .admin-user {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-create {
     grid-template-columns: 1fr;
   }
 

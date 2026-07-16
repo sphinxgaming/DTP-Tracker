@@ -2,7 +2,7 @@ const http = require("node:http");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const zlib = require("node:zlib");
-const { randomUUID } = require("node:crypto");
+const { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } = require("node:crypto");
 const { URL } = require("node:url");
 
 const PORT = Number(process.env.PORT || 4173);
@@ -62,6 +62,10 @@ const CATEGORIES = [
 
 const initialDb = {
   version: 1,
+  users: [],
+  sessions: [],
+  userSettings: {},
+  userTimers: {},
   settings: {
     workBudgetSeconds: 3 * 3600,
     breakBudgetSeconds: 3600
@@ -131,6 +135,10 @@ function normalizeDb(db) {
     ...structuredClone(initialDb),
     ...db
   };
+  clean.users = Array.isArray(db.users) ? db.users.map(normalizeUser).filter(Boolean) : [];
+  clean.sessions = Array.isArray(db.sessions) ? db.sessions.filter((session) => session && session.tokenHash && session.userId) : [];
+  clean.userSettings = db.userSettings && typeof db.userSettings === "object" ? db.userSettings : {};
+  clean.userTimers = db.userTimers && typeof db.userTimers === "object" ? db.userTimers : {};
   clean.settings = {
     ...initialDb.settings,
     ...(db.settings || {})
@@ -141,11 +149,257 @@ function normalizeDb(db) {
   };
   clean.categories = Array.from(new Set([...(db.categories || []), ...CATEGORIES]));
   clean.tasks = Array.isArray(db.tasks) ? db.tasks : [];
+  const fallbackOwner = clean.users.find((user) => user.role === "admin") || clean.users[0];
+  if (fallbackOwner) {
+    for (const task of clean.tasks) {
+      if (!task.ownerId) task.ownerId = fallbackOwner.id;
+    }
+  }
+  for (const user of clean.users) ensureUserRuntime(clean, user.id);
   clean.audit = Array.isArray(db.audit) ? db.audit.slice(-200) : [];
   return clean;
 }
 
+function normalizeUser(user) {
+  if (!user || !user.id || !user.username || !user.passwordHash || !user.passwordSalt) return null;
+  const role = user.role === "admin" ? "admin" : "designer";
+  return {
+    id: safeString(user.id, 120),
+    username: normalizeUsername(user.username),
+    displayName: safeString(user.displayName || user.username, 120),
+    role,
+    active: user.active !== false,
+    passwordHash: safeString(user.passwordHash, 300),
+    passwordSalt: safeString(user.passwordSalt, 120),
+    mustChangePassword: Boolean(user.mustChangePassword),
+    createdAt: safeString(user.createdAt, 80) || nowIso(),
+    updatedAt: safeString(user.updatedAt, 80) || nowIso()
+  };
+}
+
+function ensureUserRuntime(db, userId) {
+  if (!userId) return;
+  if (!db.userSettings[userId]) {
+    db.userSettings[userId] = {
+      ...initialDb.settings,
+      ...(db.settings || {})
+    };
+  }
+  if (!db.userTimers[userId]) {
+    db.userTimers[userId] = {
+      ...initialDb.timer,
+      ...(db.timer || {}),
+      activeTaskId: null,
+      phase: "idle",
+      reviewStartedAt: null,
+      workCountdownStartedAt: null,
+      breakCountdownStartedAt: null,
+      breakStartedAt: null,
+      plannedBreakEndAt: null,
+      expectedFinishAt: null
+    };
+  }
+}
+
+function runtimeDbForUser(rootDb, user) {
+  ensureUserRuntime(rootDb, user.id);
+  const scoped = {
+    ...rootDb,
+    settings: rootDb.userSettings[user.id],
+    timer: rootDb.userTimers[user.id],
+    tasks: rootDb.tasks,
+    categories: rootDb.categories,
+    audit: rootDb.audit
+  };
+  Object.defineProperties(scoped, {
+    __root: { value: rootDb },
+    __ownerId: { value: user.id },
+    __user: { value: user }
+  });
+  return scoped;
+}
+
+function rootDbOf(db) {
+  return db.__root || db;
+}
+
+function replaceTasks(db, tasks) {
+  db.tasks = tasks;
+  const root = rootDbOf(db);
+  if (root !== db) root.tasks = tasks;
+}
+
+function replaceTimer(db, timer) {
+  db.timer = timer;
+  const root = rootDbOf(db);
+  if (db.__ownerId) root.userTimers[db.__ownerId] = timer;
+  else root.timer = timer;
+}
+
+function taskBelongsToScope(db, task) {
+  if (!task) return false;
+  if (!db.__ownerId) return true;
+  return task.ownerId === db.__ownerId;
+}
+
+function scopedTasks(db) {
+  return db.__ownerId ? db.tasks.filter((task) => taskBelongsToScope(db, task)) : db.tasks;
+}
+
+function attachOwner(db, task) {
+  if (db.__ownerId && !task.ownerId) task.ownerId = db.__ownerId;
+  return task;
+}
+
+function normalizeUsername(value) {
+  return safeString(value, 80).toLowerCase().replace(/[^a-z0-9._-]/g, "");
+}
+
+function hashPassword(password, salt = randomBytes(16).toString("hex")) {
+  const hash = scryptSync(String(password || ""), salt, 64).toString("hex");
+  return { salt, hash };
+}
+
+function verifyPassword(password, user) {
+  if (!user || !user.passwordHash || !user.passwordSalt) return false;
+  const { hash } = hashPassword(password, user.passwordSalt);
+  const expected = Buffer.from(user.passwordHash, "hex");
+  const actual = Buffer.from(hash, "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function tokenHash(token) {
+  return createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+function sessionCookieName() {
+  return "dtp_session";
+}
+
+function parseCookies(req) {
+  const out = {};
+  const raw = req.headers.cookie || "";
+  for (const part of raw.split(";")) {
+    const index = part.indexOf("=");
+    if (index < 0) continue;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    out[key] = decodeURIComponent(value);
+  }
+  return out;
+}
+
+function setSessionCookie(req, res, token) {
+  const secure = String(req.headers["x-forwarded-proto"] || "").includes("https");
+  const parts = [
+    `${sessionCookieName()}=${encodeURIComponent(token)}`,
+    "HttpOnly",
+    "Path=/",
+    "SameSite=Lax",
+    `Max-Age=${7 * 24 * 3600}`
+  ];
+  if (secure) parts.push("Secure");
+  res.setHeader("Set-Cookie", parts.join("; "));
+}
+
+function clearSessionCookie(res) {
+  res.setHeader("Set-Cookie", `${sessionCookieName()}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
+}
+
+function safeUser(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    role: user.role,
+    active: user.active !== false,
+    mustChangePassword: Boolean(user.mustChangePassword)
+  };
+}
+
+function findUserByUsername(db, username) {
+  const clean = normalizeUsername(username);
+  return db.users.find((user) => user.username === clean) || null;
+}
+
+function createUser(db, { username, displayName, password, role = "designer", mustChangePassword = false }) {
+  const cleanUsername = normalizeUsername(username);
+  if (!cleanUsername) throw new Error("Enter a username.");
+  if (db.users.some((user) => user.username === cleanUsername)) throw new Error("Username already exists.");
+  validatePassword(password);
+  const now = nowIso();
+  const { salt, hash } = hashPassword(password);
+  const user = {
+    id: randomUUID(),
+    username: cleanUsername,
+    displayName: safeString(displayName || cleanUsername, 120),
+    role: role === "admin" ? "admin" : "designer",
+    active: true,
+    passwordHash: hash,
+    passwordSalt: salt,
+    mustChangePassword: Boolean(mustChangePassword),
+    createdAt: now,
+    updatedAt: now
+  };
+  db.users.push(user);
+  ensureUserRuntime(db, user.id);
+  return user;
+}
+
+function validatePassword(password) {
+  if (String(password || "").length < 8) {
+    throw new Error("Password must be at least 8 characters.");
+  }
+}
+
+function currentSession(db, req) {
+  const token = parseCookies(req)[sessionCookieName()];
+  if (!token) return null;
+  const hash = tokenHash(token);
+  const now = Date.now();
+  db.sessions = db.sessions.filter((session) => Date.parse(session.expiresAt) > now);
+  const session = db.sessions.find((item) => item.tokenHash === hash) || null;
+  if (!session) return null;
+  const user = db.users.find((item) => item.id === session.userId && item.active !== false) || null;
+  if (!user) return null;
+  return { token, session, user };
+}
+
+function createSession(db, user) {
+  const token = randomBytes(32).toString("base64url");
+  const session = {
+    id: randomUUID(),
+    userId: user.id,
+    tokenHash: tokenHash(token),
+    createdAt: nowIso(),
+    expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString()
+  };
+  db.sessions.push(session);
+  return { token, session };
+}
+
+function requireAuthenticated(db, req, res) {
+  const auth = currentSession(db, req);
+  if (!auth) {
+    json(res, 401, { error: "Please log in.", authenticated: false, setupRequired: db.users.length === 0 });
+    return null;
+  }
+  return auth.user;
+}
+
+function requireAdmin(db, req, res) {
+  const user = requireAuthenticated(db, req, res);
+  if (!user) return null;
+  if (user.role !== "admin") {
+    json(res, 403, { error: "Admin access required." });
+    return null;
+  }
+  return user;
+}
+
 async function saveDb(db) {
+  db = rootDbOf(db);
   writeQueue = writeQueue.then(async () => {
     await fs.mkdir(DATA_DIR, { recursive: true });
     const tmp = `${DB_FILE}.tmp`;
@@ -195,9 +449,15 @@ async function readBody(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   if (!chunks.length) return {};
-  const raw = Buffer.concat(chunks).toString("utf8");
+  const raw = Buffer.concat(chunks).toString("utf8").replace(/^\uFEFF/, "");
   if (!raw.trim()) return {};
-  return JSON.parse(raw);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const error = new Error("Invalid JSON body.");
+    error.statusCode = 400;
+    throw error;
+  }
 }
 
 function secondsSince(iso, nowMs = Date.now()) {
@@ -278,7 +538,7 @@ function formatMinuteOfDay(minute) {
 }
 
 function getTask(db, id) {
-  return db.tasks.find((task) => task.id === id) || null;
+  return db.tasks.find((task) => task.id === id && taskBelongsToScope(db, task)) || null;
 }
 
 function activeTask(db) {
@@ -335,8 +595,18 @@ function derivedState(db) {
 
   return {
     ...db,
+    users: undefined,
+    sessions: undefined,
+    userSettings: undefined,
+    userTimers: undefined,
+    tasks: scopedTasks(db),
     serverNow: nowIso(),
     dubaiTimeZone: DUBAI_TZ,
+    currentUser: safeUser(db.__user),
+    auth: db.__user ? {
+      user: safeUser(db.__user),
+      isAdmin: db.__user.role === "admin"
+    } : null,
     timer: {
       ...timer,
       derivedPhase,
@@ -351,13 +621,13 @@ function resetTimerToIdle(db, options = {}) {
   const breakRemaining = options.preserveBreak
     ? currentBreakRemaining(db.timer)
     : db.settings.breakBudgetSeconds;
-  db.timer = {
+  replaceTimer(db, {
     ...initialDb.timer,
     workBudgetSeconds: db.settings.workBudgetSeconds,
     workRemainingBaseSeconds: db.settings.workBudgetSeconds,
     breakBudgetSeconds: db.settings.breakBudgetSeconds,
     breakRemainingBaseSeconds: breakRemaining
-  };
+  });
 }
 
 function finalizePlannedBreakIfDue(db, nowMs = Date.now()) {
@@ -427,7 +697,7 @@ function parkActiveTask(db, now = nowIso()) {
 }
 
 function hasTaskOnDubaiDate(db, dateKey = dubaiDateKey(new Date())) {
-  return db.tasks.some((task) => task.dateWorked === dateKey);
+  return db.tasks.some((task) => task.dateWorked === dateKey && taskBelongsToScope(db, task));
 }
 
 function stripParens(s) {
@@ -937,6 +1207,10 @@ function dedupeImportedTasks(db) {
   const kept = [];
   let removed = 0;
   for (const task of db.tasks) {
+    if (!taskBelongsToScope(db, task)) {
+      kept.push(task);
+      continue;
+    }
     if (!task.imported) {
       kept.push(task);
       continue;
@@ -949,7 +1223,7 @@ function dedupeImportedTasks(db) {
     seen.add(key);
     kept.push(task);
   }
-  if (removed) db.tasks = kept;
+  if (removed) replaceTasks(db, kept);
   return removed;
 }
 
@@ -1522,7 +1796,85 @@ async function validateServiceNowRows(db, rows) {
 }
 
 async function handleApi(req, res, url) {
-  const db = await ensureDb();
+  const rootDb = await ensureDb();
+
+  if (req.method === "GET" && url.pathname === "/api/health") {
+    return json(res, 200, {
+      ok: true,
+      rows: rootDb.tasks.length,
+      users: rootDb.users.length,
+      auth: true
+    });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/auth/status") {
+    const auth = currentSession(rootDb, req);
+    return json(res, 200, {
+      authenticated: Boolean(auth),
+      setupRequired: rootDb.users.length === 0,
+      user: auth ? safeUser(auth.user) : null
+    });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/auth/setup") {
+    if (rootDb.users.length > 0) return json(res, 409, { error: "Admin setup is already complete." });
+    const body = await readBody(req);
+    try {
+      const admin = createUser(rootDb, {
+        username: body.username || "admin",
+        displayName: body.displayName || body.username || "Admin",
+        password: body.password,
+        role: "admin"
+      });
+      for (const task of rootDb.tasks) {
+        if (!task.ownerId) task.ownerId = admin.id;
+      }
+      rootDb.userSettings[admin.id] = {
+        ...initialDb.settings,
+        ...(rootDb.settings || {})
+      };
+      rootDb.userTimers[admin.id] = {
+        ...initialDb.timer,
+        ...(rootDb.timer || {})
+      };
+      const { token } = createSession(rootDb, admin);
+      audit(rootDb, "auth.setup", { userId: admin.id, username: admin.username });
+      await saveDb(rootDb);
+      setSessionCookie(req, res, token);
+      return json(res, 201, { authenticated: true, setupRequired: false, user: safeUser(admin) });
+    } catch (error) {
+      return json(res, 400, { error: error.message || "Setup failed." });
+    }
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/auth/login") {
+    const body = await readBody(req);
+    const user = findUserByUsername(rootDb, body.username);
+    if (!user || user.active === false || !verifyPassword(body.password, user)) {
+      return json(res, 401, { error: "Invalid username or password." });
+    }
+    const { token } = createSession(rootDb, user);
+    audit(rootDb, "auth.login", { userId: user.id, username: user.username });
+    await saveDb(rootDb);
+    setSessionCookie(req, res, token);
+    return json(res, 200, { authenticated: true, setupRequired: false, user: safeUser(user) });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/auth/logout") {
+    const auth = currentSession(rootDb, req);
+    if (auth) {
+      rootDb.sessions = rootDb.sessions.filter((session) => session.id !== auth.session.id);
+      audit(rootDb, "auth.logout", { userId: auth.user.id });
+      await saveDb(rootDb);
+    }
+    clearSessionCookie(res);
+    return json(res, 200, { authenticated: false });
+  }
+
+  const authUser = requireAuthenticated(rootDb, req, res);
+  if (!authUser) return;
+  const db = runtimeDbForUser(rootDb, authUser);
+
   if (finalizePlannedBreakIfDue(db)) {
     await saveDb(db);
   }
@@ -1531,12 +1883,78 @@ async function handleApi(req, res, url) {
     return json(res, 200, serializeForClient(db));
   }
 
-  if (req.method === "GET" && url.pathname === "/api/health") {
-    return json(res, 200, { ok: true, rows: db.tasks.length });
-  }
-
   if (req.method === "GET" && url.pathname === "/api/servicenow/config") {
     return json(res, 200, serviceNowConfigStatus());
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/admin/users") {
+    if (authUser.role !== "admin") return json(res, 403, { error: "Admin access required." });
+    return json(res, 200, {
+      users: rootDb.users.map((user) => ({
+        ...safeUser(user),
+        rowCount: rootDb.tasks.filter((task) => task.ownerId === user.id).length,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      }))
+    });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/admin/users") {
+    if (authUser.role !== "admin") return json(res, 403, { error: "Admin access required." });
+    const body = await readBody(req);
+    try {
+      const user = createUser(rootDb, {
+        username: body.username,
+        displayName: body.displayName,
+        password: body.password,
+        role: body.role === "admin" ? "admin" : "designer",
+        mustChangePassword: Boolean(body.mustChangePassword)
+      });
+      audit(rootDb, "admin.userCreate", { adminId: authUser.id, userId: user.id, username: user.username, role: user.role });
+      await saveDb(rootDb);
+      return json(res, 201, { user: safeUser(user) });
+    } catch (error) {
+      return json(res, 400, { error: error.message || "Could not create user." });
+    }
+  }
+
+  const userMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+  if (userMatch && req.method === "PATCH") {
+    if (authUser.role !== "admin") return json(res, 403, { error: "Admin access required." });
+    const id = decodeURIComponent(userMatch[1]);
+    const user = rootDb.users.find((item) => item.id === id);
+    if (!user) return json(res, 404, { error: "User not found." });
+    const body = await readBody(req);
+    try {
+      const nextRole = Object.prototype.hasOwnProperty.call(body, "role")
+        ? (body.role === "admin" ? "admin" : "designer")
+        : user.role;
+      const nextActive = Object.prototype.hasOwnProperty.call(body, "active")
+        ? Boolean(body.active)
+        : user.active !== false;
+      const hasOtherActiveAdmin = rootDb.users.some((item) => item.id !== user.id && item.active !== false && item.role === "admin");
+      if ((!nextActive || nextRole !== "admin") && user.role === "admin" && !hasOtherActiveAdmin) {
+        throw new Error("At least one active admin is required.");
+      }
+      if (Object.prototype.hasOwnProperty.call(body, "displayName")) user.displayName = safeString(body.displayName || user.username, 120);
+      user.role = nextRole;
+      user.active = nextActive;
+      if (Object.prototype.hasOwnProperty.call(body, "password") && String(body.password || "")) {
+        validatePassword(body.password);
+        const { salt, hash } = hashPassword(body.password);
+        user.passwordSalt = salt;
+        user.passwordHash = hash;
+        user.mustChangePassword = Boolean(body.mustChangePassword);
+        rootDb.sessions = rootDb.sessions.filter((session) => session.userId !== user.id);
+      }
+      user.updatedAt = nowIso();
+      ensureUserRuntime(rootDb, user.id);
+      audit(rootDb, "admin.userUpdate", { adminId: authUser.id, userId: user.id });
+      await saveDb(rootDb);
+      return json(res, 200, { user: safeUser(user) });
+    } catch (error) {
+      return json(res, 400, { error: error.message || "Could not update user." });
+    }
   }
 
   if (req.method === "PUT" && url.pathname === "/api/settings") {
@@ -1590,8 +2008,8 @@ async function handleApi(req, res, url) {
       updatedAt: createdAt
     };
     ensureCategory(db, task.category);
-    db.tasks.push(task);
-    db.timer = {
+    db.tasks.push(attachOwner(db, task));
+    replaceTimer(db, {
       ...db.timer,
       phase: "review",
       activeTaskId: id,
@@ -1608,7 +2026,7 @@ async function handleApi(req, res, url) {
       plannedBreakDurationSeconds: 0,
       breakWindowLabel: "",
       expectedFinishAt: null
-    };
+    });
     audit(db, "task.review", { id, requestNo: task.requestNo });
     await saveDb(db);
     return json(res, 201, serializeForClient(db));
@@ -1663,7 +2081,7 @@ async function handleApi(req, res, url) {
     };
     if (manualDurationSeconds !== null) task.manualDurationSeconds = manualDurationSeconds;
     ensureCategory(db, task.category);
-    db.tasks.push(task);
+    db.tasks.push(attachOwner(db, task));
     audit(db, "task.manualCreate", { id, requestNo: task.requestNo, dateWorked });
     await saveDb(db);
     const payload = serializeForClient(db);
@@ -1943,7 +2361,7 @@ async function handleApi(req, res, url) {
     const importedRows = parseImportedRows(filename, buffer);
     if (!importedRows.length) return json(res, 400, { error: "No usable tracker rows were found in the file." });
     const removedDuplicates = dedupeImportedTasks(db);
-    const seen = new Set(db.tasks.map(taskImportKey));
+    const seen = new Set(scopedTasks(db).map(taskImportKey));
     let skipped = 0;
     let added = 0;
     for (const task of importedRows) {
@@ -1954,7 +2372,7 @@ async function handleApi(req, res, url) {
       }
       seen.add(key);
       ensureCategory(db, task.category);
-      db.tasks.push(task);
+      db.tasks.push(attachOwner(db, task));
       added += 1;
     }
     audit(db, "tasks.import", { filename, rows: added, skipped, removedDuplicates });
@@ -1971,7 +2389,7 @@ async function handleApi(req, res, url) {
 
     const idSet = new Set(ids);
     const before = db.tasks.length;
-    db.tasks = db.tasks.filter((task) => !idSet.has(task.id));
+    replaceTasks(db, db.tasks.filter((task) => !(idSet.has(task.id) && taskBelongsToScope(db, task))));
     if (db.timer.activeTaskId && idSet.has(db.timer.activeTaskId)) resetTimerToIdle(db);
 
     const deleted = before - db.tasks.length;
@@ -2005,7 +2423,7 @@ async function handleApi(req, res, url) {
   if (taskMatch && req.method === "DELETE") {
     const id = decodeURIComponent(taskMatch[1]);
     const before = db.tasks.length;
-    db.tasks = db.tasks.filter((task) => task.id !== id);
+    replaceTasks(db, db.tasks.filter((task) => !(task.id === id && taskBelongsToScope(db, task))));
     if (db.timer.activeTaskId === id) resetTimerToIdle(db);
     if (db.tasks.length === before) return json(res, 404, { error: "Task not found." });
     audit(db, "task.delete", { id });
@@ -2047,7 +2465,7 @@ const server = http.createServer(async (req, res) => {
     }
   } catch (error) {
     console.error(error);
-    json(res, 500, { error: error.message || "Server error" });
+    json(res, error.statusCode || 500, { error: error.message || "Server error" });
   }
 });
 

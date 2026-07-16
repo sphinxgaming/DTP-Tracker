@@ -31,8 +31,11 @@ The live local data remains in `data/tracker.json`. The deploy seed is `data/tra
 3. Render will read `render.yaml`.
 4. Keep the persistent disk enabled at `/var/data`.
 5. Open the deployed URL after the build finishes.
+6. Create the first admin account on the setup screen.
 
 The app stores deployed data in `DATA_DIR=/var/data`. Future deployed edits are saved to that disk, not to GitHub.
+
+The first admin setup is one-time. If the deployed disk already has tracker rows but no users yet, those existing rows are assigned to the first admin account so the data is protected instead of lost.
 
 ## Updating An Existing Tracker Without Losing Rows
 
@@ -52,4 +55,4 @@ The `Validate ServiceNow` button uses a guided ServiceNow Portal queue. No Servi
 
 ## Privacy Note
 
-`data/tracker.seed.json` contains the current tracker rows. Keep the GitHub repo private if those records should not be visible to others.
+`data/tracker.seed.json` contains the current tracker rows for first-time deployment. Keep the GitHub repo private if those records should not be visible to others. After login setup, each designer only sees their own rows.

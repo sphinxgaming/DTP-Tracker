@@ -16,6 +16,18 @@ The Word export uses `public/timesheet-template.docx` as the base template, so t
 
 Time budget input treats whole numbers as minutes (`10` = 10 minutes, `190` = 190 minutes). Decimal values are hours (`1.5`, `1.25`, `2.0`, `3.0`).
 
+## Login And Admin
+
+The tracker has built-in accounts:
+
+- first launch shows a one-time `Create first admin` screen
+- the first admin receives/protects any existing tracker rows
+- admins can add designer accounts from the `Admin` button in the header
+- each designer sees only their own tracker rows and timer state
+- new designer accounts start blank
+
+Keep the first admin password private. If this is deployed on Render, create the first admin immediately after the deploy finishes.
+
 ## ServiceNow Validation
 
 The `Validate ServiceNow` button validates only the rows currently visible after Search/From/To/Category filters. Because the team can only use the ServiceNow portal, this runs as a guided portal queue instead of an API integration.

@@ -2,6 +2,7 @@ const DUBAI_TZ = "Asia/Dubai";
 
 const els = {};
 let state = null;
+let currentUser = null;
 let serverOffsetMs = 0;
 let toastTimer = null;
 let breakPlannerTouched = false;
@@ -193,7 +194,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupTimezones();
   setupBreakPlanner();
   bindEvents();
-  loadState();
+  initializeAuth();
   setInterval(tick, 1000);
   setInterval(refreshStateQuietly, 7000);
 });
@@ -248,7 +249,28 @@ function bindElements() {
     "categoryBars",
     "categoryPie",
     "pieLegend",
-    "toast"
+    "toast",
+    "currentUserBadge",
+    "adminPanelBtn",
+    "logoutBtn",
+    "authGate",
+    "authTitle",
+    "authIntro",
+    "loginForm",
+    "loginUsername",
+    "loginPassword",
+    "setupForm",
+    "setupDisplayName",
+    "setupUsername",
+    "setupPassword",
+    "adminModal",
+    "adminCloseBtn",
+    "createUserForm",
+    "newUserDisplayName",
+    "newUsername",
+    "newUserPassword",
+    "newUserRole",
+    "adminUsers"
   ]) {
     els[id] = document.getElementById(id);
   }
@@ -340,6 +362,15 @@ function bindEvents() {
   els.categoryFilter.addEventListener("change", renderTable);
   els.taskRows.addEventListener("change", handleTableChange);
   els.taskRows.addEventListener("click", handleTableClick);
+  els.loginForm.addEventListener("submit", loginUser);
+  els.setupForm.addEventListener("submit", setupFirstAdmin);
+  els.logoutBtn.addEventListener("click", logoutUser);
+  els.adminPanelBtn.addEventListener("click", openAdminPanel);
+  els.adminCloseBtn.addEventListener("click", closeAdminPanel);
+  els.adminModal.addEventListener("click", (event) => {
+    if (event.target === els.adminModal) closeAdminPanel();
+  });
+  els.createUserForm.addEventListener("submit", createDesignerUser);
 }
 
 async function api(path, options = {}) {
@@ -352,9 +383,118 @@ async function api(path, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401) {
+      currentUser = null;
+      state = null;
+      showAuthGate({ setupRequired: Boolean(payload.setupRequired) });
+    }
     throw new Error(payload.error || `Request failed: ${response.status}`);
   }
   return payload;
+}
+
+async function initializeAuth() {
+  try {
+    const status = await api("/api/auth/status");
+    if (status.authenticated && status.user) {
+      currentUser = status.user;
+      hideAuthGate();
+      renderAuthBar();
+      await loadState();
+      return;
+    }
+    showAuthGate({ setupRequired: status.setupRequired });
+  } catch (error) {
+    showAuthGate({ setupRequired: false });
+    showToast(error.message);
+  }
+}
+
+function showAuthGate({ setupRequired = false } = {}) {
+  els.authGate.hidden = false;
+  els.loginForm.hidden = setupRequired;
+  els.setupForm.hidden = !setupRequired;
+  els.authTitle.textContent = setupRequired ? "Create first admin" : "Sign in";
+  els.authIntro.textContent = setupRequired
+    ? "Create the first admin account. Existing tracker rows will be assigned to this admin."
+    : "Use your designer account to open your private tracker rows.";
+  els.logoutBtn.hidden = true;
+  els.adminPanelBtn.hidden = true;
+  els.currentUserBadge.textContent = setupRequired ? "Setup required" : "Not signed in";
+}
+
+function hideAuthGate() {
+  els.authGate.hidden = true;
+  renderAuthBar();
+}
+
+function renderAuthBar() {
+  const user = currentUser || state?.currentUser || state?.auth?.user;
+  currentUser = user || currentUser;
+  if (!user) {
+    els.currentUserBadge.textContent = "Not signed in";
+    els.logoutBtn.hidden = true;
+    els.adminPanelBtn.hidden = true;
+    return;
+  }
+  els.currentUserBadge.textContent = `${user.displayName || user.username} (${user.role})`;
+  els.logoutBtn.hidden = false;
+  els.adminPanelBtn.hidden = user.role !== "admin";
+}
+
+async function loginUser(event) {
+  event.preventDefault();
+  try {
+    const data = await api("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({
+        username: els.loginUsername.value,
+        password: els.loginPassword.value
+      })
+    });
+    currentUser = data.user;
+    els.loginPassword.value = "";
+    hideAuthGate();
+    await loadState();
+    showToast("Logged in.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function setupFirstAdmin(event) {
+  event.preventDefault();
+  try {
+    const data = await api("/api/auth/setup", {
+      method: "POST",
+      body: JSON.stringify({
+        displayName: els.setupDisplayName.value,
+        username: els.setupUsername.value,
+        password: els.setupPassword.value
+      })
+    });
+    currentUser = data.user;
+    els.setupPassword.value = "";
+    hideAuthGate();
+    await loadState();
+    showToast("Admin created. Your existing tracker rows are protected under this account.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function logoutUser() {
+  try {
+    await api("/api/auth/logout", { method: "POST", body: "{}" });
+  } catch {
+    // Continue local logout even if the session is already gone.
+  }
+  currentUser = null;
+  state = null;
+  selectedTaskIds.clear();
+  closeAdminPanel();
+  showAuthGate({ setupRequired: false });
+  showToast("Logged out.");
 }
 
 async function loadState(silent = false, options = {}) {
@@ -523,11 +663,109 @@ function actionMessage(type) {
 
 function renderAll() {
   if (!state) return;
+  renderAuthBar();
   renderSettings();
   renderCategoryControls();
   syncBreakPlannerDefaults();
   tick();
   renderTable();
+}
+
+async function openAdminPanel() {
+  if (!currentUser || currentUser.role !== "admin") return;
+  els.adminModal.hidden = false;
+  await loadAdminUsers();
+}
+
+function closeAdminPanel() {
+  if (els.adminModal) els.adminModal.hidden = true;
+}
+
+async function loadAdminUsers() {
+  try {
+    const data = await api("/api/admin/users");
+    renderAdminUsers(data.users || []);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function renderAdminUsers(users) {
+  if (!users.length) {
+    els.adminUsers.innerHTML = `<p class="empty-admin">No designer accounts yet.</p>`;
+    return;
+  }
+  els.adminUsers.innerHTML = users.map((user) => `
+    <article class="admin-user ${user.active ? "" : "inactive"}" data-user-id="${escapeAttr(user.id)}">
+      <div>
+        <strong>${escapeHtml(user.displayName || user.username)}</strong>
+        <span>${escapeHtml(user.username)} | ${escapeHtml(user.role)} | ${Number(user.rowCount || 0)} row(s)</span>
+      </div>
+      <div class="admin-user-actions">
+        <button type="button" data-admin-action="toggle-active">${user.active ? "Deactivate" : "Activate"}</button>
+        <button type="button" data-admin-action="reset-password">Reset password</button>
+      </div>
+    </article>
+  `).join("");
+  els.adminUsers.querySelectorAll("button[data-admin-action]").forEach((button) => {
+    button.addEventListener("click", handleAdminUserAction);
+  });
+}
+
+async function createDesignerUser(event) {
+  event.preventDefault();
+  try {
+    const data = await api("/api/admin/users", {
+      method: "POST",
+      body: JSON.stringify({
+        displayName: els.newUserDisplayName.value,
+        username: els.newUsername.value,
+        password: els.newUserPassword.value,
+        role: els.newUserRole.value
+      })
+    });
+    els.newUserDisplayName.value = "";
+    els.newUsername.value = "";
+    els.newUserPassword.value = "";
+    els.newUserRole.value = "designer";
+    await loadAdminUsers();
+    showToast(`Account created for ${data.user.displayName || data.user.username}.`);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function handleAdminUserAction(event) {
+  const card = event.target.closest(".admin-user");
+  const userId = card?.dataset.userId;
+  const action = event.target.dataset.adminAction;
+  if (!userId || !action) return;
+
+  try {
+    if (action === "toggle-active") {
+      const isActive = !card.classList.contains("inactive");
+      await api(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ active: !isActive })
+      });
+      await loadAdminUsers();
+      showToast(isActive ? "Designer deactivated." : "Designer activated.");
+      return;
+    }
+
+    if (action === "reset-password") {
+      const password = prompt("New password for this user (at least 8 characters):", "");
+      if (password === null) return;
+      await api(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ password })
+      });
+      await loadAdminUsers();
+      showToast("Password reset.");
+    }
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 function renderSettings() {
