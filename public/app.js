@@ -260,6 +260,7 @@ function bindElements() {
     "loginUsername",
     "loginPassword",
     "setupForm",
+    "setupCode",
     "setupDisplayName",
     "setupUsername",
     "setupPassword",
@@ -411,12 +412,13 @@ async function initializeAuth() {
 }
 
 function showAuthGate({ setupRequired = false } = {}) {
+  document.body.classList.add("auth-locked");
   els.authGate.hidden = false;
   els.loginForm.hidden = setupRequired;
   els.setupForm.hidden = !setupRequired;
   els.authTitle.textContent = setupRequired ? "Create first admin" : "Sign in";
   els.authIntro.textContent = setupRequired
-    ? "Create the first admin account. Existing tracker rows will be assigned to this admin."
+    ? "Create the first admin account with the private setup code. Existing tracker rows will be assigned to this admin."
     : "Use your designer account to open your private tracker rows.";
   els.logoutBtn.hidden = true;
   els.adminPanelBtn.hidden = true;
@@ -425,6 +427,7 @@ function showAuthGate({ setupRequired = false } = {}) {
 
 function hideAuthGate() {
   els.authGate.hidden = true;
+  document.body.classList.remove("auth-locked");
   renderAuthBar();
 }
 
@@ -470,10 +473,12 @@ async function setupFirstAdmin(event) {
       body: JSON.stringify({
         displayName: els.setupDisplayName.value,
         username: els.setupUsername.value,
-        password: els.setupPassword.value
+        password: els.setupPassword.value,
+        setupCode: els.setupCode.value
       })
     });
     currentUser = data.user;
+    els.setupCode.value = "";
     els.setupPassword.value = "";
     hideAuthGate();
     await loadState();

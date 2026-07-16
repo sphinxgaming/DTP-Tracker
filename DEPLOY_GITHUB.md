@@ -37,6 +37,8 @@ The app stores deployed data in `DATA_DIR=/var/data`. Future deployed edits are 
 
 The first admin setup is one-time. If the deployed disk already has tracker rows but no users yet, those existing rows are assigned to the first admin account so the data is protected instead of lost.
 
+Set `ADMIN_SETUP_CODE` in Render to a private code before sharing the URL broadly. The setup screen asks for that code before it can create the first admin.
+
 ## Updating An Existing Tracker Without Losing Rows
 
 If your Render tracker already contains newer rows, update the files in the same GitHub repository and redeploy the same Render service.

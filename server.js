@@ -16,6 +16,7 @@ const SEED_DB_FILE = process.env.SEED_DB_FILE || path.join(ROOT, "data", "tracke
 const TEMPLATE_FILE = path.join(PUBLIC_DIR, "timesheet-template.docx");
 const DUBAI_TZ = "Asia/Dubai";
 const SERVICE_NOW_BATCH_LIMIT = 300;
+const ADMIN_SETUP_CODE = envValue("ADMIN_SETUP_CODE", "DTP_ADMIN_SETUP_CODE") || "BryanFTIAdmin2026!";
 
 const SERVICE_NOW_ENV = {
   instanceUrl: envValue("SERVICENOW_INSTANCE_URL", "SN_INSTANCE_URL"),
@@ -1819,6 +1820,9 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/api/auth/setup") {
     if (rootDb.users.length > 0) return json(res, 409, { error: "Admin setup is already complete." });
     const body = await readBody(req);
+    if (String(body.setupCode || "") !== ADMIN_SETUP_CODE) {
+      return json(res, 403, { error: "Invalid admin setup code." });
+    }
     try {
       const admin = createUser(rootDb, {
         username: body.username || "admin",

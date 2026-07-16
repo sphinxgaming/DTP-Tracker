@@ -21,12 +21,13 @@ Time budget input treats whole numbers as minutes (`10` = 10 minutes, `190` = 19
 The tracker has built-in accounts:
 
 - first launch shows a one-time `Create first admin` screen
+- first-admin setup requires the private setup code
 - the first admin receives/protects any existing tracker rows
 - admins can add designer accounts from the `Admin` button in the header
 - each designer sees only their own tracker rows and timer state
 - new designer accounts start blank
 
-Keep the first admin password private. If this is deployed on Render, create the first admin immediately after the deploy finishes.
+Keep the setup code and first admin password private. If this is deployed on Render, create the first admin immediately after the deploy finishes. For production/internal rollout, set `ADMIN_SETUP_CODE` in Render to your own private code.
 
 ## ServiceNow Validation
 

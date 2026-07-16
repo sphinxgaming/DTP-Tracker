@@ -27,6 +27,17 @@ body {
   font-size: 14px;
 }
 
+body.auth-locked {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+body.auth-locked .app-header,
+body.auth-locked .shell {
+  display: none;
+}
+
 button,
 input,
 select {
@@ -821,6 +832,14 @@ tbody tr:hover {
   place-items: center;
   padding: 24px;
   background: rgba(5, 46, 74, 0.52);
+}
+
+body.auth-locked .auth-gate {
+  position: static;
+  inset: auto;
+  width: min(560px, calc(100vw - 32px));
+  padding: 0;
+  background: transparent;
 }
 
 .auth-gate[hidden],

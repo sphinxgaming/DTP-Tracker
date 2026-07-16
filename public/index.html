@@ -4,10 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>DTP Time Tracker</title>
-    <link rel="stylesheet" href="/styles.css?v=20260716-auth-admin">
+    <link rel="stylesheet" href="/styles.css?v=20260716-auth-admin-code">
     <link rel="stylesheet" href="/servicenow-validation.css?v=20260715-servicenow-portal-queue">
   </head>
-  <body>
+  <body class="auth-locked">
     <header class="app-header">
       <div>
         <p class="eyebrow">FTI Consulting</p>
@@ -222,6 +222,10 @@
         </form>
         <form id="setupForm" class="auth-form" hidden>
           <label>
+            Admin setup code
+            <input id="setupCode" type="password" autocomplete="one-time-code">
+          </label>
+          <label>
             Admin name
             <input id="setupDisplayName" type="text" autocomplete="name" value="Bryan Logapo">
           </label>
@@ -275,7 +279,7 @@
 
     <datalist id="categoryOptions"></datalist>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260716-auth-admin" defer></script>
+    <script src="/app.js?v=20260716-auth-admin-code" defer></script>
     <script src="/servicenow-validation.js?v=20260715-servicenow-portal-queue" defer></script>
   </body>
 </html>
