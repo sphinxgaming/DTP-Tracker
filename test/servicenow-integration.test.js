@@ -187,3 +187,114 @@ test("visible rows validate through OAuth and aggregate by request", async (t) =
     "GET /api/now/table/u_dtp_time_reporting"
   ]);
 });
+
+test("visible rows validate from ServiceNow exports without API credentials", async (t) => {
+  const trackerPort = await freePort();
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "dtp-sn-export-test-"));
+  const child = spawn(process.execPath, [path.join(ROOT, "server.js")], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(trackerPort),
+      DATA_DIR: dataDir,
+      SEED_DB_FILE: path.join(dataDir, "missing-seed.json"),
+      ADMIN_BOOTSTRAP_USERNAME: "alice",
+      ADMIN_BOOTSTRAP_DISPLAY_NAME: "Alice Designer",
+      ADMIN_BOOTSTRAP_PASSWORD: "TestPassword123!",
+      SERVICENOW_INSTANCE_URL: "",
+      SN_INSTANCE_URL: "",
+      SERVICENOW_REQUEST_TABLE: "",
+      SN_REQUEST_TABLE: "",
+      SERVICENOW_BEARER_TOKEN: "",
+      SERVICENOW_OAUTH_CLIENT_ID: "",
+      SERVICENOW_OAUTH_CLIENT_SECRET: "",
+      SERVICENOW_USER: "",
+      SERVICENOW_PASSWORD: "",
+      SERVICENOW_COOKIE: ""
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const output = [];
+  child.stdout.on("data", (chunk) => output.push(chunk.toString()));
+  child.stderr.on("data", (chunk) => output.push(chunk.toString()));
+
+  t.after(async () => {
+    child.kill();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+
+  const baseUrl = `http://127.0.0.1:${trackerPort}`;
+  await waitForHealth(baseUrl, child);
+
+  const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: "alice", password: "TestPassword123!" })
+  });
+  assert.equal(loginResponse.status, 200, output.join(""));
+  const cookie = loginResponse.headers.getSetCookie?.()[0]?.split(";")[0]
+    || loginResponse.headers.get("set-cookie").split(";")[0];
+
+  const createRow = async (slides, minutes) => {
+    const response = await fetch(`${baseUrl}/api/tasks/manual`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        rawJob: `DTP0076543 / Client B / ${slides} Slides / FRI 3PM`,
+        dateWorked: "2026-07-15",
+        workedHours: String(minutes),
+        category: "Visual"
+      })
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 201, JSON.stringify(payload));
+    return payload;
+  };
+
+  await createRow(2, 30);
+  const state = await createRow(3, 60);
+  const rows = state.tasks.filter((task) => task.requestNo === "DTP0076543");
+  assert.equal(rows.length, 2);
+
+  const configResponse = await fetch(`${baseUrl}/api/servicenow/config`, { headers: { cookie } });
+  const config = await configResponse.json();
+  assert.equal(config.configured, false);
+
+  const requestCsv = [
+    "Number,Graphic Design Category,Number Of Slides",
+    "DTP0076543,Quality checking,5"
+  ].join("\n");
+  const reportingTsv = [
+    "DTP Request\tProduction\tProduction time (in mins)",
+    "DTP0076543\tAlice Designer\t30",
+    "DTP0076543\tAlice Designer\t60",
+    "DTP0076543\tOther Designer\t999"
+  ].join("\n");
+
+  const validationResponse = await fetch(`${baseUrl}/api/servicenow/validate-export`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({
+      rows: rows.map((row) => ({ id: row.id, requestNo: row.requestNo })),
+      files: [
+        { filename: "closed-dtp-requests.csv", contentBase64: Buffer.from(requestCsv).toString("base64") },
+        { filename: "dtp-time-reportings.tsv", contentBase64: Buffer.from(reportingTsv).toString("base64") }
+      ]
+    })
+  });
+  const report = await validationResponse.json();
+  assert.equal(validationResponse.status, 200, JSON.stringify(report));
+  assert.equal(report.source, "export");
+  assert.equal(report.totalRequestedRows, 2);
+  assert.equal(report.totalProcessed, 1);
+  assert.equal(report.exportRows, 4);
+  assert.equal(report.categoryUpdatedRows, 2);
+  assert.equal(report.slideMismatches, 0);
+  assert.equal(report.minuteMismatches, 0);
+  assert.equal(report.results[0].serviceNow.slides, 5);
+  assert.equal(report.results[0].serviceNow.minutes, 90);
+  assert.equal(report.results[0].serviceNow.minuteRows, 2);
+  assert.ok(report.state.tasks.filter((task) => task.requestNo === "DTP0076543")
+    .every((task) => task.category === "Quality checking"));
+});

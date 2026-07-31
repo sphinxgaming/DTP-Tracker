@@ -1,10 +1,37 @@
-# ServiceNow Team Validation Setup
+# ServiceNow Validation
 
-The DTP Tracker validation is designed to run from the Render backend. It does
-not require Codex, a ServiceNow browser tab, or any software on a designer's
-computer.
+The tracker supports two read-only validation modes. Neither mode requires
+Codex and neither mode writes anything to ServiceNow.
 
-## Required FTI setup
+## No-OAuth export validation
+
+This mode is available without IT API credentials:
+
+1. Apply the From/To/Search/Category filters in the tracker.
+2. In the user's normal signed-in ServiceNow session, export the Closed DTP
+   Requests list with `Number`, `Graphic Design Category`, and
+   `Number Of Slides`.
+3. To compare worked minutes, also export DTP Time Reportings with the parent
+   DTP Request, `Production`, and `Production time (in mins)` columns.
+4. Select `Validate ServiceNow`, upload the CSV/Excel/TSV/HTML export files,
+   and select `Validate visible from export`.
+
+The tracker groups the currently visible rows by Request #, fills Category of
+work only when the exported category is unambiguous, and reports slide/minute
+mismatches without changing those values. Production minutes are filtered to
+the selected designer's ServiceNow production name.
+
+This is not an authentication bypass. The designer exports only data that their
+normal ServiceNow account is already permitted to view. The tracker receives no
+ServiceNow password, OAuth token, cookie, or browser session.
+
+## Optional automatic API validation
+
+The fully automatic mode runs from the Render backend. It does not require a
+ServiceNow browser tab or any software on a designer's computer, but it does
+require company-approved read-only API access.
+
+## Required FTI setup for automatic API mode
 
 Ask the ServiceNow administrator to create a server-to-server OAuth client with
 an application user that has read-only access to:
@@ -56,7 +83,7 @@ to the exact display name shown in the DTP Time Reporting `Production` field.
 This lets the same hosted tracker validate minutes for designers in any country
 without hard-coding one person's name.
 
-## Validation behavior
+## Automatic API validation behavior
 
 1. The designer selects a From/To range and any other tracker filters.
 2. `Validate ServiceNow` sends only the visible tracker row IDs to the backend.

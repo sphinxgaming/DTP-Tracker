@@ -1,8 +1,9 @@
 (() => {
-  const VERSION = "20260801-team-api";
+  const VERSION = "20260801-export-validation";
   let modal = null;
   let visibleRows = [];
   let running = false;
+  let lastConfig = {};
 
   document.addEventListener("DOMContentLoaded", initServiceNowValidation);
 
@@ -14,7 +15,7 @@
     button.id = "validateServiceNowBtn";
     button.type = "button";
     button.textContent = "Validate ServiceNow";
-    button.title = "Automatically validate the currently visible rows through the secure read-only ServiceNow integration.";
+    button.title = "Validate visible rows through the approved read-only API or a ServiceNow list export.";
     actions.insertBefore(button, document.getElementById("exportBtn") || null);
     button.addEventListener("click", openValidation);
 
@@ -57,7 +58,7 @@
         <header class="sn-modal-head">
           <div>
             <p>ServiceNow validation</p>
-            <h2 id="snValidationTitle">Automatic visible-row check</h2>
+            <h2 id="snValidationTitle">Validate visible tracker rows</h2>
           </div>
           <button type="button" class="sn-close" data-sn-close>Close</button>
         </header>
@@ -65,7 +66,7 @@
           <div class="sn-validation-grid">
             <section class="sn-input-panel" data-sn-main></section>
             <aside class="sn-help-panel">
-              <h3>Team-wide validation</h3>
+              <h3>Two safe validation modes</h3>
               <ul>
                 <li>Uses only rows visible after the current filters.</li>
                 <li>Groups repeated rows by Request #.</li>
@@ -73,7 +74,9 @@
                 <li>Updates Category of work only.</li>
                 <li>Keeps ServiceNow completely read-only.</li>
               </ul>
-              <p class="sn-note">The validation runs on the Render backend. It does not use Codex, browser automation, or the designer's ServiceNow session.</p>
+              <p class="sn-note"><strong>Export mode</strong> needs no OAuth or IT secret. Export the lists through your normal ServiceNow login, then upload them here.</p>
+              <p class="sn-note"><strong>API mode</strong> is fully automatic only when IT provides an approved read-only integration.</p>
+              <p class="sn-note">Neither mode uses Codex or writes anything to ServiceNow.</p>
               <div class="sn-setup-card" data-sn-identity></div>
             </aside>
           </div>
@@ -89,6 +92,11 @@
         visibleRows = getVisibleRows();
         runValidation();
       }
+      if (event.target.matches("[data-sn-show-export]")) renderExportMode(lastConfig);
+      if (event.target.matches("[data-sn-run-export]")) runExportValidation();
+    });
+    root.addEventListener("change", (event) => {
+      if (event.target.matches("[data-sn-export-files]")) updateExportFileSummary(event.target.files);
     });
     root.addEventListener("keydown", (event) => {
       if (event.key === "Escape") closeValidation();
@@ -108,6 +116,7 @@
     renderLoading();
     try {
       const config = await apiRequest("/api/servicenow/config");
+      lastConfig = config;
       renderIdentity(config);
       if (!config.configured) {
         renderSetupRequired(config);
@@ -133,7 +142,8 @@
       notify(`Validated ${report.totalProcessed || 0} ServiceNow request(s).`);
     } catch (error) {
       const payload = error.payload || {};
-      renderIdentity(payload);
+      lastConfig = { ...lastConfig, ...payload };
+      renderIdentity(lastConfig);
       if (payload.configured === false || payload.missing) {
         renderSetupRequired(payload);
       } else {
@@ -162,39 +172,151 @@
     const target = modal.querySelector("[data-sn-identity]");
     const authMode = config.authMode ? config.authMode.replace(/-/g, " ") : "Not configured";
     target.innerHTML = `
-      <h3>Current integration</h3>
+      <h3>Current validation access</h3>
       <p><strong>Production:</strong> ${escapeHtml(config.productionName || "Not set")}</p>
-      <p><strong>Authentication:</strong> ${escapeHtml(authMode)}</p>
+      <p><strong>API authentication:</strong> ${escapeHtml(authMode)}</p>
+      <p><strong>Export mode:</strong> Ready, no OAuth needed</p>
     `;
   }
 
   function renderSetupRequired(config = {}) {
+    lastConfig = { ...lastConfig, ...config };
+    renderExportMode(lastConfig);
+  }
+
+  function renderExportMode(config = {}, apiError = "") {
     const missing = Array.isArray(config.missing) ? config.missing : [];
     const warnings = Array.isArray(config.warnings) ? config.warnings : [];
     modal.querySelector("[data-sn-main]").innerHTML = `
-      <div class="sn-status">Automatic validation needs company-approved read-only ServiceNow API access.</div>
-      <div class="sn-setup-card">
-        <h3>Integration not ready</h3>
-        <p>Ask the FTI ServiceNow administrator to provide an OAuth client-credentials integration account with read-only access to the DTP request and time-reporting tables.</p>
+      <div class="sn-status">No OAuth is needed when validating from a ServiceNow list export.</div>
+      ${apiError ? `<div class="sn-status warning">Automatic API check failed: ${escapeHtml(apiError)} You can continue with an export below.</div>` : ""}
+      <div class="sn-setup-card sn-export-card">
+        <h3>Validate from ServiceNow export</h3>
+        <p>In your normal signed-in ServiceNow page, export the read-only list data, then select the file here. The tracker matches only the rows currently visible behind this window.</p>
+        <ol class="sn-export-steps">
+          <li>Closed DTP Requests export: include <strong>Number</strong>, <strong>Graphic Design Category</strong>, and <strong>Number Of Slides</strong>.</li>
+          <li>Optional DTP Time Reportings export: include <strong>DTP Request</strong>, <strong>Production</strong>, and <strong>Production time (in mins)</strong>.</li>
+        </ol>
+        <label class="sn-export-file">
+          ServiceNow exported file(s)
+          <input type="file" multiple accept=".csv,.tsv,.txt,.xlsx,.xlsm,.html,.htm" data-sn-export-files>
+          <small data-sn-export-summary>CSV, Excel, TSV, TXT, or HTML. Up to 5 files, 15 MB combined.</small>
+        </label>
+        <label class="sn-paste-label">
+          Or paste exported table rows
+          <textarea data-sn-export-paste placeholder="Paste a copied ServiceNow table here, including the header row."></textarea>
+        </label>
+        <div class="sn-actions">
+          <button type="button" data-sn-run-export>Validate visible from export</button>
+          <button type="button" data-sn-run-again>Check automatic API again</button>
+        </div>
+        <p class="sn-note">This does not bypass ServiceNow authentication. You export data using your own permitted login; the tracker never receives your password, OAuth token, cookie, or browser session.</p>
+      </div>
+      <details class="sn-setup-card sn-api-details">
+        <summary>Optional fully automatic API setup</summary>
+        <p>Fully automatic validation still requires company-approved read-only ServiceNow API access.</p>
         ${missing.length ? `<strong>Missing</strong><ul class="sn-setup-list">${missing.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
         ${warnings.length ? `<strong>Warnings</strong><ul class="sn-setup-list">${warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
-        <p class="sn-note">Secrets belong in Render Environment Variables only. Never place them in GitHub or the browser.</p>
-        <button type="button" data-sn-run-again>Check setup again</button>
-      </div>
+        <p class="sn-note">If IT later approves API access, secrets belong in Render Environment Variables only, never in GitHub or the browser.</p>
+      </details>
     `;
     modal.querySelector("[data-sn-report]").innerHTML = "";
   }
 
-  function renderFailure(message) {
+  async function runExportValidation() {
+    if (running || !modal) return;
+    visibleRows = getVisibleRows();
+    if (!visibleRows.length) {
+      renderMessage("No visible tracker rows to validate.", "warning");
+      return;
+    }
+
+    const fileInput = modal.querySelector("[data-sn-export-files]");
+    const pasteInput = modal.querySelector("[data-sn-export-paste]");
+    const files = Array.from(fileInput?.files || []);
+    const pastedText = pasteInput?.value || "";
+    if (!files.length && !pastedText.trim()) {
+      notify("Choose a ServiceNow export file or paste exported rows first.");
+      fileInput?.focus();
+      return;
+    }
+    if (files.length > 5) {
+      notify("Choose no more than 5 ServiceNow export files at once.");
+      return;
+    }
+    const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+    if (totalBytes > 15 * 1024 * 1024) {
+      notify("Keep the combined ServiceNow export files under 15 MB.");
+      return;
+    }
+
+    running = true;
+    setButtonBusy(true);
     modal.querySelector("[data-sn-main]").innerHTML = `
-      <div class="sn-status">Validation could not complete.</div>
-      <div class="sn-setup-card">
-        <h3>ServiceNow returned an error</h3>
-        <p>${escapeHtml(message)}</p>
-        <button type="button" data-sn-run-again>Try again</button>
+      <div class="sn-status">Reading the supplied ServiceNow export and matching visible Request # values...</div>
+      <div class="sn-summary">
+        ${metric("Visible rows", visibleRows.length)}
+        ${metric("Export files", files.length)}
+        ${metric("ServiceNow writes", "None", "info")}
       </div>
     `;
     modal.querySelector("[data-sn-report]").innerHTML = "";
+
+    try {
+      const encodedFiles = [];
+      for (const file of files) {
+        encodedFiles.push({ filename: file.name, contentBase64: await fileToBase64(file) });
+      }
+      const report = await apiRequest("/api/servicenow/validate-export", {
+        method: "POST",
+        body: JSON.stringify({
+          rows: visibleRows.map((row) => ({ id: row.id, requestNo: row.requestNo })),
+          files: encodedFiles,
+          pastedText
+        })
+      });
+      if (report.state) {
+        try {
+          if (typeof setState === "function") setState(report.state, { preserveScroll: true });
+        } catch {
+          // The report remains usable if the surrounding table refresh fails.
+        }
+      }
+      renderIdentity({ ...lastConfig, productionName: report.productionName || lastConfig.productionName });
+      renderReport(report);
+      notify(`Validated ${report.totalProcessed || 0} request(s) from the ServiceNow export.`);
+    } catch (error) {
+      renderExportMode(lastConfig, error.message || "The ServiceNow export could not be validated.");
+    } finally {
+      running = false;
+      setButtonBusy(false);
+    }
+  }
+
+  function renderFailure(message) {
+    renderExportMode(lastConfig, message);
+  }
+
+  function updateExportFileSummary(fileList) {
+    const target = modal?.querySelector("[data-sn-export-summary]");
+    if (!target) return;
+    const files = Array.from(fileList || []);
+    if (!files.length) {
+      target.textContent = "CSV, Excel, TSV, TXT, or HTML. Up to 5 files, 15 MB combined.";
+      return;
+    }
+    const sizeMb = files.reduce((sum, file) => sum + file.size, 0) / (1024 * 1024);
+    target.textContent = `${files.length} file(s) selected, ${sizeMb.toFixed(2)} MB: ${files.map((file) => file.name).join(", ")}`;
+  }
+
+  async function fileToBase64(file) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const chunkSize = 0x8000;
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
   }
 
   function renderMessage(message, kind = "") {
@@ -203,8 +325,10 @@
 
   function renderReport(report) {
     const results = Array.isArray(report.results) ? report.results : [];
+    const warnings = Array.isArray(report.warnings) ? report.warnings : [];
+    const fromExport = report.source === "export";
     modal.querySelector("[data-sn-main]").innerHTML = `
-      <div class="sn-status">Validation complete. Category changes were saved; slides and minutes were compared only.</div>
+      <div class="sn-status">Validation complete${fromExport ? " from the supplied ServiceNow export" : " through the read-only API"}. Category changes were saved; slides and minutes were compared only.</div>
       <div class="sn-summary">
         ${metric("Visible rows", report.totalRequestedRows ?? visibleRows.length)}
         ${metric("Requests", report.totalProcessed ?? 0)}
@@ -213,14 +337,19 @@
         ${metric("Minute mismatch", report.minuteMismatches ?? 0, report.minuteMismatches ? "warning" : "")}
         ${metric("Not found", report.notFound ?? 0, report.notFound ? "danger" : "")}
       </div>
+      ${fromExport ? `<div class="sn-status">Read ${Number(report.exportRows || 0)} ServiceNow row(s) from ${Number(report.exportSources?.length || 0)} supplied source(s).</div>` : ""}
+      ${warnings.length ? `<div class="sn-status warning"><strong>Export notes</strong><ul class="sn-setup-list">${warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div>` : ""}
       ${report.truncated ? `<div class="sn-status">Only the first ${Number(report.totalProcessed || 0)} requests were processed. Narrow the filters and run again for the remaining requests.</div>` : ""}
-      <div class="sn-actions"><button type="button" data-sn-run-again>Validate visible again</button></div>
+      <div class="sn-actions">
+        <button type="button" data-sn-show-export>Validate another export</button>
+        ${lastConfig.configured ? `<button type="button" data-sn-run-again>Run automatic API validation</button>` : ""}
+      </div>
     `;
 
     modal.querySelector("[data-sn-report]").innerHTML = `
       <div class="sn-report-head">
         <strong>ServiceNow comparison report</strong>
-        <span>Production: ${escapeHtml(report.productionName || "Not set")}</span>
+        <span>${fromExport ? "Source: exported list" : "Source: API"} | Production: ${escapeHtml(report.productionName || "Not set")}</span>
       </div>
       <div class="sn-report-table-wrap">
         <table class="sn-report-table">

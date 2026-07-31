@@ -26,6 +26,9 @@ const TOOL_VENDOR_FILES = new Map([
 const DUBAI_TZ = "Asia/Dubai";
 const SERVICE_NOW_BATCH_LIMIT = 300;
 const SERVICE_NOW_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.SERVICENOW_CONCURRENCY || 4)));
+const SERVICE_NOW_EXPORT_MAX_FILES = 5;
+const SERVICE_NOW_EXPORT_MAX_BYTES = 15 * 1024 * 1024;
+const SERVICE_NOW_EXPORT_MAX_PASTE_BYTES = 2 * 1024 * 1024;
 const TOOL_FETCH_TIMEOUT_MS = 15000;
 const TOOL_MAX_HTML_BYTES = 5 * 1024 * 1024;
 const TOOL_MAX_CSS_BYTES = 2 * 1024 * 1024;
@@ -1503,6 +1506,189 @@ function parseDocxRows(buffer) {
   return rows;
 }
 
+function serviceNowExportFieldForHeader(value) {
+  const header = normalizeImportHeader(value);
+  if ([
+    "number",
+    "request",
+    "requestno",
+    "requestnumber",
+    "dtprequest",
+    "dtprequestno",
+    "dtprequestnumber",
+    "parent",
+    "parentrequest",
+    "parentrequestnumber",
+    "tasknumber"
+  ].includes(header)) return "requestNo";
+  if ([
+    "graphicdesigncategory",
+    "graphiccategory",
+    "gdcategory",
+    "categoryofwork",
+    "category"
+  ].includes(header)) return "category";
+  if ([
+    "numberofslides",
+    "noofslides",
+    "ofslides",
+    "slides",
+    "slidecount"
+  ].includes(header)) return "slides";
+  if ([
+    "production",
+    "productionname",
+    "productiondesigner",
+    "designer",
+    "assignedproduction"
+  ].includes(header)) return "production";
+  if ([
+    "productiontimeinmins",
+    "productiontimeinminutes",
+    "productionminutes",
+    "productionmins",
+    "workedminutes",
+    "workedmins",
+    "timeinmins",
+    "minutes"
+  ].includes(header)) return "minutes";
+  return null;
+}
+
+function findServiceNowExportHeader(rows) {
+  let best = null;
+  for (let r = 0; r < Math.min(rows.length, 60); r += 1) {
+    const columns = {};
+    for (let c = 0; c < (rows[r] || []).length; c += 1) {
+      const field = serviceNowExportFieldForHeader(rows[r][c]);
+      if (field && columns[field] === undefined) columns[field] = c;
+    }
+    if (columns.requestNo === undefined) continue;
+    const score = ["category", "slides", "production", "minutes"]
+      .filter((field) => columns[field] !== undefined).length;
+    if (!score) continue;
+    if (!best || score > best.score) best = { index: r, columns, score };
+  }
+  return best;
+}
+
+function parseRowsForServiceNowExport(filename, buffer) {
+  const ext = path.extname(filename || "").toLowerCase();
+  if ([".xlsx", ".xlsm"].includes(ext)) return parseWorkbookRows(buffer);
+  const textValue = buffer.toString("utf8").replace(/^\uFEFF/, "");
+  if (ext === ".html" || ext === ".htm" || /<table[\s>]/i.test(textValue)) {
+    return parseHtmlRows(textValue);
+  }
+  return parseDelimitedRows(textValue);
+}
+
+function parseServiceNowExportSource(filename, buffer) {
+  const rows = parseRowsForServiceNowExport(filename, buffer);
+  const header = findServiceNowExportHeader(rows);
+  if (!header) {
+    throw new Error(`${filename}: no ServiceNow table header was found. Include Request/Number and at least one of Graphic Design Category, Number Of Slides, Production, or Production time (in mins).`);
+  }
+
+  const fields = Object.keys(header.columns);
+  const records = [];
+  for (let r = header.index + 1; r < rows.length; r += 1) {
+    const row = rows[r] || [];
+    const get = (field) => {
+      const index = header.columns[field];
+      return index === undefined ? "" : safeString(row[index], 500);
+    };
+    const requestNo = extractJobCode(get("requestNo"));
+    if (!requestNo) continue;
+    records.push({
+      requestNo,
+      category: safeString(get("category"), 120).replace(/\s+/g, " "),
+      slides: parseWholeNumberValue(get("slides")),
+      production: safeString(get("production"), 160).replace(/\s+/g, " "),
+      minutes: parseWholeNumberValue(get("minutes")),
+      hasProductionColumn: header.columns.production !== undefined,
+      source: filename,
+      rowNumber: r + 1
+    });
+  }
+
+  if (!records.length) {
+    throw new Error(`${filename}: the table header was found, but no DTP Request # rows were found.`);
+  }
+  return { filename, fields, records };
+}
+
+function normalizePersonName(value) {
+  return safeString(value, 160).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function serviceNowProductionMatches(actualName, expectedName) {
+  const actual = normalizePersonName(actualName);
+  const expected = normalizePersonName(expectedName);
+  if (!actual || !expected) return false;
+  if (actual === expected || actual.includes(expected) || expected.includes(actual)) return true;
+  const expectedParts = expected.split(/\s+/).filter((part) => part.length > 1);
+  return expectedParts.length > 1 && expectedParts.every((part) => actual.split(/\s+/).includes(part));
+}
+
+function buildServiceNowExportIndex(sources, productionName) {
+  const index = new Map();
+  const warnings = [];
+  let importedRows = 0;
+  let minuteRowsWithoutProduction = 0;
+
+  for (const source of sources) {
+    for (const record of source.records) {
+      importedRows += 1;
+      if (!index.has(record.requestNo)) {
+        index.set(record.requestNo, {
+          requestNo: record.requestNo,
+          categories: new Set(),
+          slides: new Set(),
+          minuteRows: [],
+          sources: new Set()
+        });
+      }
+      const item = index.get(record.requestNo);
+      item.sources.add(source.filename);
+      if (record.category) item.categories.add(record.category);
+      if (record.slides !== null) item.slides.add(record.slides);
+      if (record.minutes !== null) {
+        item.minuteRows.push(record);
+        if (!record.hasProductionColumn) minuteRowsWithoutProduction += 1;
+      }
+    }
+  }
+
+  if (minuteRowsWithoutProduction) {
+    warnings.push(`${minuteRowsWithoutProduction} minute row(s) had no Production column. Those supplied minutes are treated as belonging to the selected designer.`);
+  }
+  if (!productionName && sources.some((source) => source.fields.includes("production"))) {
+    warnings.push("The selected tracker user has no ServiceNow production name. Minute rows with a Production column cannot be matched safely.");
+  }
+
+  return { index, warnings, importedRows };
+}
+
+function parseServiceNowExportPayload(files, pastedText, productionName) {
+  const sources = [];
+  for (const file of files) sources.push(parseServiceNowExportSource(file.filename, file.buffer));
+  const cleanPaste = String(pastedText || "").replace(/^\uFEFF/, "").trim();
+  if (cleanPaste) {
+    sources.push(parseServiceNowExportSource("Pasted ServiceNow data.tsv", Buffer.from(cleanPaste, "utf8")));
+  }
+  if (!sources.length) throw new Error("Choose a ServiceNow export file or paste exported table rows first.");
+
+  const built = buildServiceNowExportIndex(sources, productionName);
+  return {
+    ...built,
+    sources: sources.map((source) => ({
+      filename: source.filename,
+      rows: source.records.length,
+      fields: source.fields
+    }))
+  };
+}
+
 function docxCellText(cellXml) {
   const pieces = [];
   const tokenMatches = String(cellXml || "").match(/<w:t\b[^>]*>[\s\S]*?<\/w:t>|<w:tab\b[^>]*\/>|<w:br\b[^>]*\/>/g) || [];
@@ -2414,6 +2600,174 @@ async function mapWithConcurrency(items, limit, mapper) {
   return output;
 }
 
+function serviceNowExportMinuteValue(item, productionName) {
+  const rows = Array.isArray(item?.minuteRows) ? item.minuteRows : [];
+  if (!rows.length) return { minutes: null, count: 0, reason: "missing-minutes" };
+
+  const matched = [];
+  let productionRows = 0;
+  for (const row of rows) {
+    if (!row.hasProductionColumn) {
+      matched.push(row);
+      continue;
+    }
+    productionRows += 1;
+    if (productionName && serviceNowProductionMatches(row.production, productionName)) matched.push(row);
+  }
+
+  if (!matched.length) {
+    return {
+      minutes: null,
+      count: 0,
+      reason: productionRows && !productionName ? "production-name" : "production-not-found"
+    };
+  }
+  return {
+    minutes: matched.reduce((sum, row) => sum + Math.max(0, Number(row.minutes) || 0), 0),
+    count: matched.length,
+    reason: ""
+  };
+}
+
+function validateOneServiceNowExportGroup(db, group, exportItem, productionName) {
+  const tracker = aggregateTrackerGroup(group);
+  const result = {
+    _order: group._order,
+    id: group.tasks[0]?.id || "",
+    rowIds: group.tasks.map((task) => task.id),
+    rowCount: group.tasks.length,
+    requestNo: group.requestNo,
+    status: "pending",
+    tracker,
+    serviceNow: {
+      category: "",
+      slides: null,
+      minutes: null,
+      minuteRows: 0
+    },
+    categoryUpdated: false,
+    categoryUpdatedRows: 0,
+    slidesMismatch: false,
+    minutesMismatch: false,
+    messages: []
+  };
+
+  if (!exportItem) {
+    result.status = "not-found";
+    result.messages.push("Request was not found in the supplied ServiceNow export.");
+    return result;
+  }
+
+  result.status = "matched";
+  const categories = Array.from(exportItem.categories || []);
+  const slides = Array.from(exportItem.slides || []);
+  if (categories.length === 1) {
+    result.serviceNow.category = categories[0];
+  } else if (categories.length > 1) {
+    result.messages.push(`Conflicting ServiceNow categories in the export: ${categories.join(" / ")}. Category was not changed.`);
+  }
+
+  if (slides.length === 1) {
+    result.serviceNow.slides = slides[0];
+    if (tracker.slides !== null && tracker.slides !== result.serviceNow.slides) {
+      result.slidesMismatch = true;
+      result.messages.push(`Slides mismatch: tracker ${tracker.slides}, ServiceNow ${result.serviceNow.slides}.`);
+    }
+  } else if (slides.length > 1) {
+    result.messages.push(`Conflicting ServiceNow slide values in the export: ${slides.join(" / ")}.`);
+  } else {
+    result.messages.push("Number Of Slides was not supplied for this request.");
+  }
+
+  const minutes = serviceNowExportMinuteValue(exportItem, productionName);
+  result.serviceNow.minutes = minutes.minutes;
+  result.serviceNow.minuteRows = minutes.count;
+  if (minutes.reason === "missing-minutes") {
+    result.messages.push("Production minutes were not supplied for this request.");
+  } else if (minutes.reason === "production-name") {
+    result.messages.push("The selected tracker user has no ServiceNow production name, so production rows were not totaled.");
+  } else if (minutes.reason === "production-not-found") {
+    result.messages.push(`No Production time row matched "${productionName}".`);
+  } else if (tracker.minutes !== null && result.serviceNow.minutes !== null && tracker.minutes !== result.serviceNow.minutes) {
+    result.minutesMismatch = true;
+    result.messages.push(`Minutes mismatch: tracker ${tracker.minutes}, ServiceNow ${result.serviceNow.minutes}.`);
+  }
+
+  const category = result.serviceNow.category;
+  if (category) {
+    const cleanCategory = safeString(category, 120);
+    for (const task of group.tasks) {
+      if (cleanCategory.toLowerCase() === safeString(task.category, 120).toLowerCase()) continue;
+      task.category = cleanCategory;
+      task.updatedAt = nowIso();
+      result.categoryUpdatedRows += 1;
+    }
+    if (result.categoryUpdatedRows) {
+      ensureCategory(db, cleanCategory);
+      result.categoryUpdated = true;
+      result.tracker.category = cleanCategory;
+      result.messages.push(`Category updated on ${result.categoryUpdatedRows} tracker row(s) to "${cleanCategory}".`);
+    }
+  }
+
+  if (!result.messages.length) result.messages.push("Matched.");
+  return result;
+}
+
+function finalizeServiceNowValidationReport({ rows, grouped, limitedGroups, validatedResults, productionName, extra = {} }) {
+  const results = [...grouped.invalidResults, ...validatedResults]
+    .sort((a, b) => a._order - b._order)
+    .map(({ _order, ...result }) => result);
+  const categoryUpdates = results.filter((result) => result.categoryUpdated).length;
+  const categoryUpdatedRows = results.reduce((sum, result) => sum + Number(result.categoryUpdatedRows || 0), 0);
+  const slideMismatches = results.filter((result) => result.slidesMismatch).length;
+  const minuteMismatches = results.filter((result) => result.minutesMismatch).length;
+  const notFound = results.filter((result) => result.status === "not-found").length;
+  const errors = results.filter((result) => result.status === "error").length;
+
+  return {
+    productionName,
+    totalRequestedRows: rows.length,
+    totalRequests: grouped.groups.length,
+    totalProcessed: limitedGroups.length,
+    totalProcessedRows: limitedGroups.reduce((sum, group) => sum + group.tasks.length, 0) + grouped.invalidResults.length,
+    truncated: grouped.groups.length > limitedGroups.length,
+    categoryUpdates,
+    categoryUpdatedRows,
+    slideMismatches,
+    minuteMismatches,
+    notFound,
+    errors,
+    results,
+    ...extra
+  };
+}
+
+function validateServiceNowExportRows(db, rows, exported) {
+  const productionName = serviceNowProductionNameForDb(db);
+  const grouped = groupVisibleServiceNowRows(db, rows);
+  const limitedGroups = grouped.groups.slice(0, SERVICE_NOW_BATCH_LIMIT);
+  const validatedResults = limitedGroups.map((group) => validateOneServiceNowExportGroup(
+    db,
+    group,
+    exported.index.get(group.requestNo),
+    productionName
+  ));
+  return finalizeServiceNowValidationReport({
+    rows,
+    grouped,
+    limitedGroups,
+    validatedResults,
+    productionName,
+    extra: {
+      source: "export",
+      exportRows: exported.importedRows,
+      exportSources: exported.sources,
+      warnings: exported.warnings
+    }
+  });
+}
+
 async function validateServiceNowRows(db, rows) {
   const productionName = serviceNowProductionNameForDb(db);
   const grouped = groupVisibleServiceNowRows(db, rows);
@@ -2440,31 +2794,14 @@ async function validateServiceNowRows(db, rows) {
     }
   });
 
-  const results = [...grouped.invalidResults, ...validatedResults]
-    .sort((a, b) => a._order - b._order)
-    .map(({ _order, ...result }) => result);
-  const categoryUpdates = results.filter((result) => result.categoryUpdated).length;
-  const categoryUpdatedRows = results.reduce((sum, result) => sum + Number(result.categoryUpdatedRows || 0), 0);
-  const slideMismatches = results.filter((result) => result.slidesMismatch).length;
-  const minuteMismatches = results.filter((result) => result.minutesMismatch).length;
-  const notFound = results.filter((result) => result.status === "not-found").length;
-  const errors = results.filter((result) => result.status === "error").length;
-
-  return {
+  return finalizeServiceNowValidationReport({
+    rows,
+    grouped,
+    limitedGroups,
+    validatedResults,
     productionName,
-    totalRequestedRows: rows.length,
-    totalRequests: grouped.groups.length,
-    totalProcessed: limitedGroups.length,
-    totalProcessedRows: limitedGroups.reduce((sum, group) => sum + group.tasks.length, 0) + grouped.invalidResults.length,
-    truncated: grouped.groups.length > limitedGroups.length,
-    categoryUpdates,
-    categoryUpdatedRows,
-    slideMismatches,
-    minuteMismatches,
-    notFound,
-    errors,
-    results
-  };
+    extra: { source: "api" }
+  });
 }
 
 async function handleApi(req, res, url) {
@@ -3031,6 +3368,66 @@ async function handleApi(req, res, url) {
       });
       await saveDb(db);
     }
+
+    return json(res, 200, {
+      ok: true,
+      configured: true,
+      ...report,
+      state: serializeForClient(db)
+    });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/servicenow/validate-export") {
+    const body = await readBody(req);
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    if (!rows.length) return json(res, 400, { error: "No visible rows to validate." });
+
+    const inputFiles = Array.isArray(body.files) ? body.files : [];
+    if (inputFiles.length > SERVICE_NOW_EXPORT_MAX_FILES) {
+      return json(res, 413, { error: `Choose no more than ${SERVICE_NOW_EXPORT_MAX_FILES} ServiceNow export files at once.` });
+    }
+
+    const allowedExtensions = new Set([".csv", ".tsv", ".txt", ".xlsx", ".xlsm", ".html", ".htm"]);
+    const files = [];
+    let totalBytes = 0;
+    for (const input of inputFiles) {
+      const filename = safeString(input?.filename, 260) || "servicenow-export.csv";
+      const extension = path.extname(filename).toLowerCase();
+      if (!allowedExtensions.has(extension)) {
+        return json(res, 400, { error: `${filename}: use CSV, TSV, TXT, XLSX, XLSM, or HTML export format.` });
+      }
+      const base64 = String(input?.contentBase64 || "").replace(/^data:[^,]+,/, "");
+      if (!base64) return json(res, 400, { error: `${filename}: no file content was received.` });
+      const buffer = Buffer.from(base64, "base64");
+      totalBytes += buffer.length;
+      if (totalBytes > SERVICE_NOW_EXPORT_MAX_BYTES) {
+        return json(res, 413, { error: "ServiceNow export files are too large. Keep the combined files under 15 MB." });
+      }
+      files.push({ filename, buffer });
+    }
+
+    const pastedText = String(body.pastedText || "");
+    if (Buffer.byteLength(pastedText, "utf8") > SERVICE_NOW_EXPORT_MAX_PASTE_BYTES) {
+      return json(res, 413, { error: "Pasted ServiceNow data is too large. Keep pasted text under 2 MB." });
+    }
+
+    let exported;
+    try {
+      exported = parseServiceNowExportPayload(files, pastedText, serviceNowProductionNameForDb(db));
+    } catch (error) {
+      return json(res, 400, { error: error.message || "The ServiceNow export could not be read." });
+    }
+
+    const report = validateServiceNowExportRows(db, rows, exported);
+    audit(db, "servicenow.validateExport", {
+      rows: report.totalProcessedRows,
+      requests: report.totalProcessed,
+      exportRows: report.exportRows,
+      sources: report.exportSources.map((source) => source.filename),
+      categoryUpdates: report.categoryUpdates,
+      truncated: report.truncated
+    });
+    await saveDb(db);
 
     return json(res, 200, {
       ok: true,

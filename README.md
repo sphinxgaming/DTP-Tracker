@@ -40,7 +40,9 @@ Completing or skipping the tour is saved per user. A `Tour` button remains in th
 
 ## ServiceNow Validation
 
-The `Validate ServiceNow` button validates only the rows currently visible after Search/From/To/Category filters. Validation runs from the Render backend through an FTI-approved read-only ServiceNow integration, so it does not depend on Codex, a browser extension, or a logged-in ServiceNow tab.
+The `Validate ServiceNow` button validates only the rows currently visible after Search/From/To/Category filters. It supports a no-OAuth export workflow: a designer exports permitted ServiceNow list data through their normal login, then uploads CSV/Excel/TSV/HTML files to the validation window. The tracker never receives a ServiceNow password, token, cookie, or browser session.
+
+An optional fully automatic mode can run from the Render backend when FTI provides an approved read-only ServiceNow API integration. Both modes are independent of Codex and keep ServiceNow read-only.
 
 Repeated rows are grouped by `Request #`; tracker slides and minutes are totaled before comparison. The tracker updates `Category of work` only; slide and minute differences are shown as mismatch notes and are not auto-changed. Each account has its own ServiceNow `Production` display-name mapping.
 
