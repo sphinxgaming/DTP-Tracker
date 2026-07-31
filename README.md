@@ -40,11 +40,11 @@ Completing or skipping the tour is saved per user. A `Tour` button remains in th
 
 ## ServiceNow Validation
 
-The `Validate ServiceNow` button validates only the rows currently visible after Search/From/To/Category filters. Because the team can only use the ServiceNow portal, this runs as a guided portal queue instead of an API integration.
+The `Validate ServiceNow` button validates only the rows currently visible after Search/From/To/Category filters. Validation runs from the Render backend through an FTI-approved read-only ServiceNow integration, so it does not depend on Codex, a browser extension, or a logged-in ServiceNow tab.
 
-The queue copies/opens each visible `Request #` one by one. Enter the ServiceNow portal values for `Graphic Design Category`, `Number Of Slides`, and Bryan `Production time (in mins)`. The tracker updates `Category of work` only; slide and minute differences are shown as mismatch notes and are not auto-changed.
+Repeated rows are grouped by `Request #`; tracker slides and minutes are totaled before comparison. The tracker updates `Category of work` only; slide and minute differences are shown as mismatch notes and are not auto-changed. Each account has its own ServiceNow `Production` display-name mapping.
 
-A deployed website cannot click or read a separate logged-in ServiceNow Chrome tab, and ServiceNow stays read-only.
+ServiceNow stays read-only. See `SERVICENOW-INTEGRATION.md` for the company setup and Render environment variables.
 
 ## Built-In DTP Tools
 

@@ -266,6 +266,7 @@ function bindElements() {
     "createUserForm",
     "newUserDisplayName",
     "newUsername",
+    "newUserServiceNowName",
     "newUserPassword",
     "newUserRole",
     "adminUsers"
@@ -710,13 +711,15 @@ function renderAdminUsers(users) {
     return;
   }
   els.adminUsers.innerHTML = users.map((user) => `
-    <article class="admin-user ${user.active ? "" : "inactive"} ${activeViewUserId === user.id || (!activeViewUserId && currentUser?.id === user.id) ? "viewing" : ""}" data-user-id="${escapeAttr(user.id)}" data-user-role="${escapeAttr(user.role)}">
+    <article class="admin-user ${user.active ? "" : "inactive"} ${activeViewUserId === user.id || (!activeViewUserId && currentUser?.id === user.id) ? "viewing" : ""}" data-user-id="${escapeAttr(user.id)}" data-user-role="${escapeAttr(user.role)}" data-service-now-name="${escapeAttr(user.serviceNowProductionName || user.displayName || "")}">
       <div>
         <strong>${escapeHtml(user.displayName || user.username)}</strong>
         <span>${escapeHtml(user.username)} | ${escapeHtml(user.role)} | ${Number(user.rowCount || 0)} row(s)</span>
+        <span>ServiceNow Production: ${escapeHtml(user.serviceNowProductionName || user.displayName || "Not set")}</span>
       </div>
       <div class="admin-user-actions">
         <button type="button" data-admin-action="view-tracker">${activeViewUserId === user.id || (!activeViewUserId && currentUser?.id === user.id) ? "Viewing" : "View tracker"}</button>
+        <button type="button" data-admin-action="servicenow-name">ServiceNow name</button>
         <button type="button" data-admin-action="toggle-role">${user.role === "admin" ? "Make designer" : "Make admin"}</button>
         <button type="button" data-admin-action="toggle-active">${user.active ? "Deactivate" : "Activate"}</button>
         <button type="button" data-admin-action="reset-password">Reset password</button>
@@ -736,12 +739,14 @@ async function createDesignerUser(event) {
       body: JSON.stringify({
         displayName: els.newUserDisplayName.value,
         username: els.newUsername.value,
+        serviceNowProductionName: els.newUserServiceNowName.value,
         password: els.newUserPassword.value,
         role: els.newUserRole.value
       })
     });
     els.newUserDisplayName.value = "";
     els.newUsername.value = "";
+    els.newUserServiceNowName.value = "";
     els.newUserPassword.value = "";
     els.newUserRole.value = "designer";
     await loadAdminUsers();
@@ -784,6 +789,24 @@ async function handleAdminUserAction(event) {
       await loadAdminUsers();
       if (state?.viewUser?.id === userId) await loadState(true, { preserveScroll: true });
       showToast(nextRole === "admin" ? "User promoted to admin." : "User changed to designer.");
+      return;
+    }
+
+    if (action === "servicenow-name") {
+      const currentName = card.dataset.serviceNowName || "";
+      const serviceNowProductionName = prompt("Exact Production name shown in ServiceNow:", currentName);
+      if (serviceNowProductionName === null) return;
+      if (!serviceNowProductionName.trim()) {
+        showToast("ServiceNow production name cannot be blank.");
+        return;
+      }
+      await api(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ serviceNowProductionName: serviceNowProductionName.trim() })
+      });
+      await loadAdminUsers();
+      if (state?.viewUser?.id === userId) await loadState(true, { preserveScroll: true });
+      showToast("ServiceNow production name updated.");
       return;
     }
 

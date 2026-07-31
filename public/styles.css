@@ -963,7 +963,7 @@ body.auth-locked .auth-gate {
 
 .admin-create {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) 130px auto;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(170px, 1.25fr) minmax(130px, 1fr) 110px auto;
   gap: 10px;
   align-items: end;
   padding: 16px;

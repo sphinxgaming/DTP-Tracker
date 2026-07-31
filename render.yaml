@@ -32,8 +32,18 @@ services:
         value: u_graphic_design_category
       - key: SERVICENOW_SLIDES_FIELD
         value: u_number_of_slides
-      - key: SERVICENOW_PRODUCTION_NAME
-        value: Bryan Logapo
+      - key: SERVICENOW_CONCURRENCY
+        value: 4
+      - key: SERVICENOW_OAUTH_GRANT_TYPE
+        value: client_credentials
+      - key: SERVICENOW_OAUTH_TOKEN_URL
+        sync: false
+      - key: SERVICENOW_OAUTH_CLIENT_ID
+        sync: false
+      - key: SERVICENOW_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: SERVICENOW_OAUTH_SCOPE
+        sync: false
       - key: SERVICENOW_USER
         sync: false
       - key: SERVICENOW_PASSWORD
