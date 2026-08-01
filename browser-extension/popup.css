@@ -1,0 +1,62 @@
+:root {
+  font-family: Arial, sans-serif;
+  color: #102f46;
+  background: #eef4f7;
+}
+
+body {
+  width: 320px;
+  margin: 0;
+}
+
+header {
+  padding: 16px 18px;
+  color: white;
+  background: #06476f;
+}
+
+header span {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 3px 0 0;
+  font-size: 20px;
+}
+
+main {
+  padding: 16px 18px 18px;
+}
+
+.status {
+  margin-top: 0;
+  font-weight: 700;
+  color: #06703c;
+}
+
+.last-run {
+  margin: 14px 0;
+  padding: 10px;
+  border: 1px solid #cad9e2;
+  background: white;
+  font-size: 12px;
+}
+
+button {
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  color: white;
+  background: #06476f;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+small {
+  display: block;
+  margin-top: 12px;
+  line-height: 1.4;
+  color: #526b7d;
+}

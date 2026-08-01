@@ -1,9 +1,12 @@
 (() => {
-  const VERSION = "20260801-export-validation";
+  const VERSION = "20260801-browser-helper-2";
+  const PAGE_SOURCE = "dtp-tracker-page";
+  const HELPER_SOURCE = "dtp-servicenow-helper";
   let modal = null;
   let visibleRows = [];
   let running = false;
   let lastConfig = {};
+  let helperVersion = "";
 
   document.addEventListener("DOMContentLoaded", initServiceNowValidation);
 
@@ -15,7 +18,7 @@
     button.id = "validateServiceNowBtn";
     button.type = "button";
     button.textContent = "Validate ServiceNow";
-    button.title = "Validate visible rows through the approved read-only API or a ServiceNow list export.";
+    button.title = "Validate visible rows through the read-only ServiceNow browser helper or approved API.";
     actions.insertBefore(button, document.getElementById("exportBtn") || null);
     button.addEventListener("click", openValidation);
 
@@ -66,7 +69,7 @@
           <div class="sn-validation-grid">
             <section class="sn-input-panel" data-sn-main></section>
             <aside class="sn-help-panel">
-              <h3>Two safe validation modes</h3>
+              <h3>Read-only validation</h3>
               <ul>
                 <li>Uses only rows visible after the current filters.</li>
                 <li>Groups repeated rows by Request #.</li>
@@ -74,9 +77,9 @@
                 <li>Updates Category of work only.</li>
                 <li>Keeps ServiceNow completely read-only.</li>
               </ul>
-              <p class="sn-note"><strong>Export mode</strong> needs no OAuth or IT secret. Export the lists through your normal ServiceNow login, then upload them here.</p>
-              <p class="sn-note"><strong>API mode</strong> is fully automatic only when IT provides an approved read-only integration.</p>
-              <p class="sn-note">Neither mode uses Codex or writes anything to ServiceNow.</p>
+              <p class="sn-note"><strong>Browser helper</strong> uses the designer's normal signed-in ServiceNow tab. No OAuth application or exported file is required.</p>
+              <p class="sn-note"><strong>Optional API mode</strong> is available only when IT provides an approved read-only integration.</p>
+              <p class="sn-note">No validation mode uses Codex or writes anything to ServiceNow.</p>
               <div class="sn-setup-card" data-sn-identity></div>
             </aside>
           </div>
@@ -118,33 +121,29 @@
       const config = await apiRequest("/api/servicenow/config");
       lastConfig = config;
       renderIdentity(config);
-      if (!config.configured) {
-        renderSetupRequired(config);
+      const helper = await detectBrowserHelper();
+      if (helper.available) {
+        helperVersion = helper.version || "installed";
+        renderIdentity(config);
+        await runBrowserHelperValidation(config);
         return;
       }
-
-      const report = await apiRequest("/api/servicenow/validate", {
-        method: "POST",
-        body: JSON.stringify({
-          rows: visibleRows.map((row) => ({ id: row.id, requestNo: row.requestNo }))
-        })
-      });
-
-      if (report.state) {
-        try {
-          if (typeof setState === "function") setState(report.state, { preserveScroll: true });
-        } catch {
-          // The report remains valid even if the surrounding table refresh fails.
-        }
+      helperVersion = "";
+      renderIdentity(config);
+      if (config.configured) {
+        await runApiValidation(config);
+      } else {
+        renderSetupRequired(config);
       }
-      renderIdentity({ ...config, productionName: report.productionName || config.productionName });
-      renderReport(report);
-      notify(`Validated ${report.totalProcessed || 0} ServiceNow request(s).`);
     } catch (error) {
       const payload = error.payload || {};
       lastConfig = { ...lastConfig, ...payload };
       renderIdentity(lastConfig);
-      if (payload.configured === false || payload.missing) {
+      if (error.code === "LOGIN_REQUIRED") {
+        renderExportMode(lastConfig, "ServiceNow opened a login page. Sign in there, then select Check helper again.", true);
+      } else if (error.code && error.code.startsWith("HELPER_")) {
+        renderExportMode(lastConfig, error.message || "The browser helper could not complete validation.", true);
+      } else if (payload.configured === false || payload.missing) {
         renderSetupRequired(payload);
       } else {
         renderFailure(error.message || "ServiceNow validation failed.");
@@ -155,9 +154,154 @@
     }
   }
 
+  async function runApiValidation(config) {
+    const report = await apiRequest("/api/servicenow/validate", {
+      method: "POST",
+      body: JSON.stringify({
+        rows: visibleRows.map((row) => ({ id: row.id, requestNo: row.requestNo }))
+      })
+    });
+    applyValidationState(report);
+    renderIdentity({ ...config, productionName: report.productionName || config.productionName });
+    renderReport(report);
+    notify(`Validated ${report.totalProcessed || 0} ServiceNow request(s).`);
+  }
+
+  async function runBrowserHelperValidation(config) {
+    const requestNos = Array.from(new Set(visibleRows.map((row) => String(row.requestNo || "").trim()).filter(Boolean)));
+    if (!requestNos.length) throw helperError("HELPER_NO_REQUESTS", "The visible rows have no Request # values to search.");
+
+    const helperResult = await browserHelperRequest("DTP_SN_VALIDATE", {
+      requestNos,
+      productionName: config.productionName || ""
+    }, {
+      timeoutMs: Math.max(180000, requestNos.length * 35000),
+      onProgress: renderHelperProgress
+    });
+    if (!helperResult.ok) {
+      const code = helperResult.code === "LOGIN_REQUIRED" ? "LOGIN_REQUIRED" : "HELPER_FAILED";
+      throw helperError(code, helperResult.error || "Browser helper validation failed.");
+    }
+
+    const result = helperResult.result || {};
+    const records = Array.isArray(result.records) ? result.records : [];
+    if (!records.length) {
+      const missing = Array.isArray(result.notFound) && result.notFound.length
+        ? ` Not found: ${result.notFound.join(", ")}.`
+        : "";
+      throw helperError("HELPER_NO_MATCHES", `No visible Request # was found in Closed DTP Requests.${missing}`);
+    }
+
+    const report = await apiRequest("/api/servicenow/validate-export", {
+      method: "POST",
+      body: JSON.stringify({
+        rows: visibleRows.map((row) => ({ id: row.id, requestNo: row.requestNo })),
+        files: [],
+        pastedText: buildBrowserHelperTsv(records, config.productionName || result.productionName || "")
+      })
+    });
+    report.source = "browser-helper";
+    report.warnings = [
+      ...(Array.isArray(report.warnings) ? report.warnings : []),
+      ...(Array.isArray(result.warnings) ? result.warnings : [])
+    ];
+    report.browserHelperVersion = result.version || helperVersion;
+    applyValidationState(report);
+    renderIdentity({ ...config, productionName: report.productionName || config.productionName });
+    renderReport(report);
+    notify(`Validated ${report.totalProcessed || 0} request(s) through the ServiceNow browser helper.`);
+  }
+
+  function applyValidationState(report) {
+    if (!report?.state) return;
+    try {
+      if (typeof setState === "function") setState(report.state, { preserveScroll: true });
+    } catch {
+      // The comparison report remains usable if the surrounding table refresh fails.
+    }
+  }
+
+  function renderHelperProgress(progress = {}) {
+    if (!modal) return;
+    const completed = Number(progress.completed || 0);
+    const total = Number(progress.total || 0);
+    const action = progress.phase === "record" ? "Reading details" : "Searching Closed DTP Requests";
+    modal.querySelector("[data-sn-main]").innerHTML = `
+      <div class="sn-status">${escapeHtml(action)}: ${escapeHtml(progress.requestNo || "")}</div>
+      <div class="sn-summary">
+        ${metric("Completed", `${completed} / ${total}`)}
+        ${metric("Current request", progress.requestNo || "--")}
+        ${metric("ServiceNow writes", "None", "info")}
+      </div>
+      <div class="sn-progress" aria-label="ServiceNow validation progress"><span style="width:${total ? Math.min(100, completed / total * 100) : 0}%"></span></div>
+    `;
+  }
+
+  function buildBrowserHelperTsv(records, productionName) {
+    const clean = (value) => String(value == null ? "" : value).replace(/[\t\r\n]+/g, " ").trim();
+    const rows = [["Number", "Graphic Design Category", "Number Of Slides", "Production", "Production time (in mins)"]];
+    for (const record of records) {
+      rows.push([
+        record.requestNo,
+        record.category,
+        record.slides ?? "",
+        productionName,
+        record.minutes ?? ""
+      ]);
+    }
+    return rows.map((row) => row.map(clean).join("\t")).join("\n");
+  }
+
+  function helperError(code, message) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+  }
+
+  async function detectBrowserHelper() {
+    try {
+      const response = await browserHelperRequest("DTP_SN_PING", {}, { timeoutMs: 900 });
+      return { available: response.type === "DTP_SN_READY", version: response.version || "" };
+    } catch {
+      return { available: false, version: "" };
+    }
+  }
+
+  function browserHelperRequest(type, payload, options = {}) {
+    const requestId = `sn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const timeoutMs = Number(options.timeoutMs || 1000);
+    return new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        cleanup();
+        reject(helperError("HELPER_NOT_FOUND", "DTP ServiceNow Helper was not detected in this browser."));
+      }, timeoutMs);
+
+      function cleanup() {
+        window.clearTimeout(timer);
+        window.removeEventListener("message", onMessage);
+      }
+
+      function onMessage(event) {
+        if (event.source !== window || event.origin !== location.origin) return;
+        const message = event.data;
+        if (!message || message.source !== HELPER_SOURCE || message.requestId !== requestId) return;
+        if (message.type === "DTP_SN_PROGRESS") {
+          if (typeof options.onProgress === "function") options.onProgress(message.progress || {});
+          return;
+        }
+        if (message.type !== "DTP_SN_RESULT" && message.type !== "DTP_SN_READY") return;
+        cleanup();
+        resolve(message);
+      }
+
+      window.addEventListener("message", onMessage);
+      window.postMessage({ source: PAGE_SOURCE, type, requestId, payload }, location.origin);
+    });
+  }
+
   function renderLoading() {
     modal.querySelector("[data-sn-main]").innerHTML = `
-      <div class="sn-status">Connecting to the read-only ServiceNow integration...</div>
+      <div class="sn-status">Checking for the read-only ServiceNow browser helper...</div>
       <div class="sn-summary">
         ${metric("Visible rows", visibleRows.length)}
         ${metric("Requests", "Grouping")}
@@ -174,8 +318,9 @@
     target.innerHTML = `
       <h3>Current validation access</h3>
       <p><strong>Production:</strong> ${escapeHtml(config.productionName || "Not set")}</p>
+      <p><strong>Browser helper:</strong> ${helperVersion ? `Ready (${escapeHtml(helperVersion)})` : "Not detected"}</p>
       <p><strong>API authentication:</strong> ${escapeHtml(authMode)}</p>
-      <p><strong>Export mode:</strong> Ready, no OAuth needed</p>
+      <p><strong>ServiceNow writes:</strong> None</p>
     `;
   }
 
@@ -184,34 +329,37 @@
     renderExportMode(lastConfig);
   }
 
-  function renderExportMode(config = {}, apiError = "") {
+  function renderExportMode(config = {}, apiError = "", helperWasDetected = false) {
     const missing = Array.isArray(config.missing) ? config.missing : [];
     const warnings = Array.isArray(config.warnings) ? config.warnings : [];
     modal.querySelector("[data-sn-main]").innerHTML = `
-      <div class="sn-status">No OAuth is needed when validating from a ServiceNow list export.</div>
-      ${apiError ? `<div class="sn-status warning">Automatic API check failed: ${escapeHtml(apiError)} You can continue with an export below.</div>` : ""}
-      <div class="sn-setup-card sn-export-card">
-        <h3>Validate from ServiceNow export</h3>
-        <p>In your normal signed-in ServiceNow page, export the read-only list data, then select the file here. The tracker matches only the rows currently visible behind this window.</p>
+      <div class="sn-status">Automatic no-OAuth validation uses the DTP ServiceNow browser helper and your existing ServiceNow login.</div>
+      ${apiError ? `<div class="sn-status warning">${escapeHtml(apiError)}</div>` : ""}
+      <div class="sn-setup-card sn-companion-card">
+        <h3>${helperWasDetected ? "Browser helper needs attention" : "Install the browser helper once"}</h3>
+        <p>The helper opens Closed DTP Requests in a dedicated tab, reads only the request details, and returns the comparison values to this tracker.</p>
         <ol class="sn-export-steps">
-          <li>Closed DTP Requests export: include <strong>Number</strong>, <strong>Graphic Design Category</strong>, and <strong>Number Of Slides</strong>.</li>
-          <li>Optional DTP Time Reportings export: include <strong>DTP Request</strong>, <strong>Production</strong>, and <strong>Production time (in mins)</strong>.</li>
+          <li><a class="sn-download-link" href="/downloads/DTP-ServiceNow-Helper.zip" download>Download DTP ServiceNow Helper</a> and extract it.</li>
+          <li>Open <strong>chrome://extensions</strong> or <strong>edge://extensions</strong>, enable Developer mode, then select <strong>Load unpacked</strong>.</li>
+          <li>Choose the extracted <strong>browser-extension</strong> folder, sign in normally to ServiceNow, then check again.</li>
         </ol>
+        <div class="sn-actions"><button type="button" data-sn-run-again>Check helper again</button></div>
+        <p class="sn-note">This does not bypass ServiceNow authentication. It uses only pages the signed-in designer is already allowed to read and never sends the ServiceNow cookie or password to Render.</p>
+      </div>
+      <details class="sn-setup-card sn-api-details">
+        <summary>Manual supplied-data fallback</summary>
+        <p>If a ServiceNow administrator enables list export later, CSV/Excel/TSV/HTML data can still be supplied here.</p>
         <label class="sn-export-file">
           ServiceNow exported file(s)
           <input type="file" multiple accept=".csv,.tsv,.txt,.xlsx,.xlsm,.html,.htm" data-sn-export-files>
           <small data-sn-export-summary>CSV, Excel, TSV, TXT, or HTML. Up to 5 files, 15 MB combined.</small>
         </label>
         <label class="sn-paste-label">
-          Or paste exported table rows
+          Or paste copied table rows
           <textarea data-sn-export-paste placeholder="Paste a copied ServiceNow table here, including the header row."></textarea>
         </label>
-        <div class="sn-actions">
-          <button type="button" data-sn-run-export>Validate visible from export</button>
-          <button type="button" data-sn-run-again>Check automatic API again</button>
-        </div>
-        <p class="sn-note">This does not bypass ServiceNow authentication. You export data using your own permitted login; the tracker never receives your password, OAuth token, cookie, or browser session.</p>
-      </div>
+        <div class="sn-actions"><button type="button" data-sn-run-export>Validate visible from supplied data</button></div>
+      </details>
       <details class="sn-setup-card sn-api-details">
         <summary>Optional fully automatic API setup</summary>
         <p>Fully automatic validation still requires company-approved read-only ServiceNow API access.</p>
@@ -327,8 +475,10 @@
     const results = Array.isArray(report.results) ? report.results : [];
     const warnings = Array.isArray(report.warnings) ? report.warnings : [];
     const fromExport = report.source === "export";
+    const fromBrowserHelper = report.source === "browser-helper";
+    const sourceLabel = fromBrowserHelper ? "ServiceNow browser helper" : (fromExport ? "supplied list data" : "approved API");
     modal.querySelector("[data-sn-main]").innerHTML = `
-      <div class="sn-status">Validation complete${fromExport ? " from the supplied ServiceNow export" : " through the read-only API"}. Category changes were saved; slides and minutes were compared only.</div>
+      <div class="sn-status">Validation complete through the ${sourceLabel}. Category changes were saved; slides and minutes were compared only.</div>
       <div class="sn-summary">
         ${metric("Visible rows", report.totalRequestedRows ?? visibleRows.length)}
         ${metric("Requests", report.totalProcessed ?? 0)}
@@ -338,18 +488,19 @@
         ${metric("Not found", report.notFound ?? 0, report.notFound ? "danger" : "")}
       </div>
       ${fromExport ? `<div class="sn-status">Read ${Number(report.exportRows || 0)} ServiceNow row(s) from ${Number(report.exportSources?.length || 0)} supplied source(s).</div>` : ""}
-      ${warnings.length ? `<div class="sn-status warning"><strong>Export notes</strong><ul class="sn-setup-list">${warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div>` : ""}
+      ${fromBrowserHelper ? `<div class="sn-status">Helper version ${escapeHtml(report.browserHelperVersion || helperVersion || "installed")}; ServiceNow remained read-only.</div>` : ""}
+      ${warnings.length ? `<div class="sn-status warning"><strong>Validation notes</strong><ul class="sn-setup-list">${warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div>` : ""}
       ${report.truncated ? `<div class="sn-status">Only the first ${Number(report.totalProcessed || 0)} requests were processed. Narrow the filters and run again for the remaining requests.</div>` : ""}
       <div class="sn-actions">
-        <button type="button" data-sn-show-export>Validate another export</button>
-        ${lastConfig.configured ? `<button type="button" data-sn-run-again>Run automatic API validation</button>` : ""}
+        <button type="button" data-sn-run-again>Validate visible again</button>
+        <button type="button" data-sn-show-export>Setup or supplied data</button>
       </div>
     `;
 
     modal.querySelector("[data-sn-report]").innerHTML = `
       <div class="sn-report-head">
         <strong>ServiceNow comparison report</strong>
-        <span>${fromExport ? "Source: exported list" : "Source: API"} | Production: ${escapeHtml(report.productionName || "Not set")}</span>
+        <span>Source: ${escapeHtml(sourceLabel)} | Production: ${escapeHtml(report.productionName || "Not set")}</span>
       </div>
       <div class="sn-report-table-wrap">
         <table class="sn-report-table">

@@ -247,6 +247,29 @@
   gap: 12px;
 }
 
+.sn-companion-card {
+  border-left: 4px solid #1ca8d2;
+}
+
+.sn-download-link {
+  color: #07547d;
+  font-weight: 800;
+}
+
+.sn-progress {
+  height: 8px;
+  margin-top: 14px;
+  overflow: hidden;
+  background: #dbe7ed;
+}
+
+.sn-progress span {
+  display: block;
+  height: 100%;
+  background: #1ca8d2;
+  transition: width 180ms ease;
+}
+
 .sn-export-file {
   display: grid;
   gap: 7px;

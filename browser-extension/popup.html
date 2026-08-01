@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="stylesheet" href="popup.css">
+    <title>DTP ServiceNow Helper</title>
+  </head>
+  <body>
+    <header>
+      <span>DTP validation</span>
+      <h1>ServiceNow Helper</h1>
+    </header>
+    <main>
+      <p class="status">Read-only browser companion</p>
+      <p>Open the DTP tracker, filter the rows you need, then select <strong>Validate ServiceNow</strong>.</p>
+      <div id="lastRun" class="last-run">No validation run recorded yet.</div>
+      <button id="openTracker" type="button">Open DTP Tracker</button>
+      <small>This helper uses your existing ServiceNow login. It never writes to ServiceNow.</small>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

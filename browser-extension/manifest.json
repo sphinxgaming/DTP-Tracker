@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "DTP ServiceNow Validation Helper",
+  "version": "1.0.0",
+  "description": "Read-only validation bridge between DTP Time Tracker and the user's signed-in FTI ServiceNow session.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://fticonsulting.service-now.com/*",
+    "https://dtp-web-tracker-y2fl.onrender.com/*",
+    "https://dtp-web-tracker.onrender.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://dtp-web-tracker-y2fl.onrender.com/*",
+        "https://dtp-web-tracker.onrender.com/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["tracker-bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "DTP ServiceNow Validation Helper",
+    "default_popup": "popup.html"
+  }
+}

@@ -1,11 +1,43 @@
 # ServiceNow Validation
 
-The tracker supports two read-only validation modes. Neither mode requires
-Codex and neither mode writes anything to ServiceNow.
+The tracker supports three read-only validation modes. None requires Codex and
+none writes anything to ServiceNow.
 
-## No-OAuth export validation
+## Automatic browser-helper validation (no OAuth)
 
-This mode is available without IT API credentials:
+This is the recommended mode when FTI does not provide API credentials:
+
+1. Download `DTP-ServiceNow-Helper.zip` from the validation window.
+2. Extract it, open `chrome://extensions` or `edge://extensions`, enable
+   Developer mode, and choose `Load unpacked`.
+3. Select the extracted `browser-extension` folder.
+4. Sign in normally to the FTI ServiceNow portal.
+5. Apply the From/To/Search/Category filters in DTP Tracker and select
+   `Validate ServiceNow`.
+
+The extension opens a dedicated ServiceNow tab, searches Closed DTP Requests
+one Request # at a time, opens the matching record, and reads:
+
+- `Graphic Design Category`
+- `Number Of Slides`
+- DTP Time Reporting `Production`
+- `Production time (in mins)`
+
+It uses the selected tracker account's ServiceNow Production display name.
+Only the final request/category/slides/minutes comparison values are returned
+to DTP Tracker. ServiceNow cookies, credentials, and browser-session data never
+leave the browser.
+
+This is not an authentication bypass. If ServiceNow requests login, the helper
+brings that tab forward so the designer can sign in normally and retry.
+
+For a team-wide managed-browser rollout, FTI IT can distribute the same
+Manifest V3 extension through Chrome or Edge enterprise extension policy.
+
+## Manual supplied-data fallback
+
+This fallback is available only when the user's ServiceNow role can copy or
+export the permitted list data:
 
 1. Apply the From/To/Search/Category filters in the tracker.
 2. In the user's normal signed-in ServiceNow session, export the Closed DTP

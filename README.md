@@ -40,13 +40,13 @@ Completing or skipping the tour is saved per user. A `Tour` button remains in th
 
 ## ServiceNow Validation
 
-The `Validate ServiceNow` button validates only the rows currently visible after Search/From/To/Category filters. It supports a no-OAuth export workflow: a designer exports permitted ServiceNow list data through their normal login, then uploads CSV/Excel/TSV/HTML files to the validation window. The tracker never receives a ServiceNow password, token, cookie, or browser session.
+The `Validate ServiceNow` button validates only the rows currently visible after Search/From/To/Category filters. The primary no-OAuth workflow uses the included Chrome/Edge companion extension. It opens a dedicated ServiceNow tab, searches each unique visible Request # through the designer's existing signed-in browser session, and reads Category, slides, and that designer's Production minutes.
 
-An optional fully automatic mode can run from the Render backend when FTI provides an approved read-only ServiceNow API integration. Both modes are independent of Codex and keep ServiceNow read-only.
+The browser helper is independent of Codex and keeps ServiceNow read-only. It never sends the ServiceNow password, cookie, or browser session to Render. A manual supplied-data fallback remains available, and an optional backend API mode can run if FTI later provides an approved read-only integration.
 
 Repeated rows are grouped by `Request #`; tracker slides and minutes are totaled before comparison. The tracker updates `Category of work` only; slide and minute differences are shown as mismatch notes and are not auto-changed. Each account has its own ServiceNow `Production` display-name mapping.
 
-ServiceNow stays read-only. See `SERVICENOW-INTEGRATION.md` for the company setup and Render environment variables.
+ServiceNow stays read-only. See `SERVICENOW-INTEGRATION.md` for browser-helper installation, company deployment, and optional Render API variables.
 
 ## Built-In DTP Tools
 
