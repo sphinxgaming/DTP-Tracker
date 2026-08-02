@@ -124,6 +124,7 @@ without hard-coding one person's name.
 5. ServiceNow category, slides, and the current designer's production minutes
    are read and compared.
 6. Category of work is updated when ServiceNow has a clear value.
-7. Slide and minute mismatches are reported but never auto-edited.
+7. Slides are reported but never auto-edited. Worked minutes are shown in a dedicated manual-review form with tracker and ServiceNow values side by side, the calculated difference, a reviewer decision, and notes. Neither value is auto-edited.
+8. The manual minutes comparison can be downloaded as CSV for follow-up or audit.
 
 The tracker never writes to ServiceNow.

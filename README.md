@@ -44,7 +44,7 @@ The `Validate ServiceNow` button validates only the rows currently visible after
 
 The browser helper is independent of Codex and keeps ServiceNow read-only. It never sends the ServiceNow password, cookie, or browser session to Render. A manual supplied-data fallback remains available, and an optional backend API mode can run if FTI later provides an approved read-only integration.
 
-Repeated rows are grouped by `Request #`; tracker slides and minutes are totaled before comparison. The tracker updates `Category of work` only; slide and minute differences are shown as mismatch notes and are not auto-changed. Each account has its own ServiceNow `Production` display-name mapping.
+Repeated rows are grouped by `Request #`; tracker slides and minutes are totaled before comparison. The tracker updates `Category of work` only. Worked minutes open in a dedicated manual-review form with tracker minutes, ServiceNow minutes, the difference, a reviewer decision, and notes; neither source is auto-changed. The completed minutes review can be downloaded as CSV. Each account has its own ServiceNow `Production` display-name mapping.
 
 ServiceNow stays read-only. See `SERVICENOW-INTEGRATION.md` for browser-helper installation, company deployment, and optional Render API variables.
 

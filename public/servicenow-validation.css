@@ -437,6 +437,155 @@
   margin-top: 16px;
 }
 
+.sn-minute-review {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 14px;
+  background: #f7fbfd;
+  border: 2px solid #0b6f98;
+}
+
+.sn-minute-review-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sn-minute-review-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.sn-minute-review-head p,
+.sn-minute-review-head h3,
+.sn-minute-review-head span {
+  margin: 0;
+}
+
+.sn-minute-review-head p {
+  color: var(--fti-red);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.sn-minute-review-head h3 {
+  color: var(--fti-blue-dark);
+  font-size: 18px;
+}
+
+.sn-minute-review-head span,
+.sn-minute-review-note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.sn-minute-review-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(100px, 1fr));
+  gap: 8px;
+}
+
+.sn-minute-review-table-wrap {
+  max-height: 430px;
+  overflow: auto;
+  border: 1px solid var(--line);
+}
+
+.sn-minute-review-table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: collapse;
+  background: #fff;
+  font-size: 12px;
+}
+
+.sn-minute-review-table th,
+.sn-minute-review-table td {
+  border: 1px solid var(--line);
+  padding: 8px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.sn-minute-review-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  color: #fff;
+  background: var(--fti-blue);
+}
+
+.sn-minute-review-table th small {
+  color: #c7e1ee;
+  font-size: 9px;
+}
+
+.sn-minute-review-table select,
+.sn-minute-review-table input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.sn-minute-review-table select {
+  min-width: 230px;
+}
+
+.sn-minute-review-table input {
+  min-width: 210px;
+  padding: 7px 8px;
+}
+
+.sn-minute-value,
+.sn-minute-difference {
+  text-align: center !important;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.sn-minute-attention td {
+  background: #fff9e8;
+}
+
+.sn-minute-attention .sn-minute-difference {
+  color: #a44c00;
+}
+
+.sn-minute-match .sn-minute-difference {
+  color: #12602a;
+}
+
+.sn-minute-reviewed td {
+  background: #eef8f1;
+}
+
+.sn-comparison-badge {
+  display: inline-block;
+  padding: 4px 6px;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.sn-comparison-badge.sn-minute-attention {
+  color: #955004;
+}
+
+.sn-comparison-badge.sn-minute-match {
+  color: #12602a;
+}
+
+.sn-minute-review-note {
+  margin: 0;
+  font-weight: 700;
+}
+
 .sn-report-head {
   display: flex;
   align-items: center;
@@ -555,5 +704,14 @@
   .sn-report-head {
     align-items: start;
     flex-direction: column;
+  }
+
+  .sn-minute-review-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sn-minute-review-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

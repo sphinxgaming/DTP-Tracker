@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "20260801-browser-helper-2";
+  const VERSION = "20260802-minute-review-1";
   const PAGE_SOURCE = "dtp-tracker-page";
   const HELPER_SOURCE = "dtp-servicenow-helper";
   let modal = null;
@@ -7,6 +7,8 @@
   let running = false;
   let lastConfig = {};
   let helperVersion = "";
+  let lastReportResults = [];
+  const minuteReviewState = new Map();
 
   document.addEventListener("DOMContentLoaded", initServiceNowValidation);
 
@@ -97,9 +99,18 @@
       }
       if (event.target.matches("[data-sn-show-export]")) renderExportMode(lastConfig);
       if (event.target.matches("[data-sn-run-export]")) runExportValidation();
+      if (event.target.matches("[data-sn-download-minute-review]")) downloadMinuteReviewCsv();
     });
     root.addEventListener("change", (event) => {
       if (event.target.matches("[data-sn-export-files]")) updateExportFileSummary(event.target.files);
+      if (event.target.matches("[data-sn-minute-decision]")) {
+        updateMinuteReviewState(event.target.dataset.reviewKey, { decision: event.target.value });
+      }
+    });
+    root.addEventListener("input", (event) => {
+      if (event.target.matches("[data-sn-minute-note]")) {
+        updateMinuteReviewState(event.target.dataset.reviewKey, { note: event.target.value });
+      }
     });
     root.addEventListener("keydown", (event) => {
       if (event.key === "Escape") closeValidation();
@@ -473,6 +484,7 @@
 
   function renderReport(report) {
     const results = Array.isArray(report.results) ? report.results : [];
+    lastReportResults = results;
     const warnings = Array.isArray(report.warnings) ? report.warnings : [];
     const fromExport = report.source === "export";
     const fromBrowserHelper = report.source === "browser-helper";
@@ -498,8 +510,9 @@
     `;
 
     modal.querySelector("[data-sn-report]").innerHTML = `
+      ${minuteReviewFormHtml(results)}
       <div class="sn-report-head">
-        <strong>ServiceNow comparison report</strong>
+        <strong>Category and slide comparison</strong>
         <span>Source: ${escapeHtml(sourceLabel)} | Production: ${escapeHtml(report.productionName || "Not set")}</span>
       </div>
       <div class="sn-report-table-wrap">
@@ -510,7 +523,6 @@
               <th>Rows</th>
               <th>Category</th>
               <th>Slides T / SN</th>
-              <th>Mins T / SN</th>
               <th>Result</th>
             </tr>
           </thead>
@@ -518,10 +530,11 @@
         </table>
       </div>
     `;
+    refreshMinuteReviewSummary();
   }
 
   function resultRowHtml(result) {
-    const hasIssue = result.slidesMismatch || result.minutesMismatch;
+    const hasIssue = result.slidesMismatch;
     const rowClass = result.status === "error" || result.status === "not-found"
       ? "sn-row-error"
       : hasIssue
@@ -536,10 +549,211 @@
         <td>${Number(result.rowCount || 0)}</td>
         <td>${escapeHtml(categoryText)}</td>
         <td>${escapeHtml(pair(result.tracker?.slides, result.serviceNow?.slides))}</td>
-        <td>${escapeHtml(pair(result.tracker?.minutes, result.serviceNow?.minutes))}</td>
-        <td>${escapeHtml((result.messages || []).join(" ") || result.status || "Matched")}</td>
+        <td>${escapeHtml(categorySlideResultText(result))}</td>
       </tr>
     `;
+  }
+
+  function minuteReviewFormHtml(results) {
+    return `
+      <section class="sn-minute-review" aria-labelledby="snMinuteReviewTitle">
+        <div class="sn-minute-review-head">
+          <div>
+            <p>Critical manual check</p>
+            <h3 id="snMinuteReviewTitle">Worked minutes comparison</h3>
+            <span>Tracker minutes are never overwritten. Review each Request # and record your decision below.</span>
+          </div>
+          <button type="button" data-sn-download-minute-review>Download minutes report</button>
+        </div>
+        <div class="sn-minute-review-summary">
+          ${metric("Requests", results.length)}
+          ${metric("Exact values", results.filter(hasExactMinutes).length, "info")}
+          ${metric("Needs attention", results.filter(needsMinuteAttention).length, results.some(needsMinuteAttention) ? "warning" : "")}
+          <div class="sn-metric info" data-sn-minute-reviewed><span>Manually reviewed</span><strong>0</strong></div>
+          <div class="sn-metric ${results.length ? "warning" : ""}" data-sn-minute-pending><span>Pending</span><strong>${results.length}</strong></div>
+        </div>
+        <div class="sn-minute-review-table-wrap">
+          <table class="sn-minute-review-table">
+            <thead>
+              <tr>
+                <th>Request #</th>
+                <th>Tracker rows</th>
+                <th>Tracker mins</th>
+                <th>ServiceNow mins</th>
+                <th>Difference<br><small>SN - Tracker</small></th>
+                <th>Comparison</th>
+                <th>Manual decision</th>
+                <th>Reviewer note</th>
+              </tr>
+            </thead>
+            <tbody>${results.map(minuteReviewRowHtml).join("")}</tbody>
+          </table>
+        </div>
+        <p class="sn-minute-review-note">Selecting a decision records the review only in this open report. It does not change the tracker or ServiceNow minutes.</p>
+      </section>
+    `;
+  }
+
+  function minuteReviewRowHtml(result) {
+    const key = minuteReviewKey(result);
+    const saved = minuteReviewState.get(key) || { decision: "pending", note: "" };
+    const trackerMinutes = numberOrNull(result.tracker?.minutes);
+    const serviceNowMinutes = numberOrNull(result.serviceNow?.minutes);
+    const difference = trackerMinutes === null || serviceNowMinutes === null
+      ? null
+      : serviceNowMinutes - trackerMinutes;
+    const comparison = minuteComparison(result);
+    const attentionClass = needsMinuteAttention(result) ? "sn-minute-attention" : "sn-minute-match";
+    return `
+      <tr class="${attentionClass}" data-sn-minute-review-row data-review-key="${escapeHtml(key)}">
+        <td><strong>${escapeHtml(result.requestNo || "--")}</strong></td>
+        <td>${Number(result.rowCount || 0)}</td>
+        <td class="sn-minute-value">${escapeHtml(displayValue(trackerMinutes))}</td>
+        <td class="sn-minute-value">${escapeHtml(displayValue(serviceNowMinutes))}</td>
+        <td class="sn-minute-difference">${escapeHtml(formatMinuteDifference(difference))}</td>
+        <td><span class="sn-comparison-badge ${attentionClass}">${escapeHtml(comparison)}</span></td>
+        <td>
+          <select data-sn-minute-decision data-review-key="${escapeHtml(key)}" aria-label="Manual decision for ${escapeHtml(result.requestNo || "request")}">
+            ${minuteDecisionOptions(saved.decision)}
+          </select>
+        </td>
+        <td><input type="text" data-sn-minute-note data-review-key="${escapeHtml(key)}" value="${escapeHtml(saved.note || "")}" placeholder="Reason or action needed" aria-label="Reviewer note for ${escapeHtml(result.requestNo || "request")}"></td>
+      </tr>
+    `;
+  }
+
+  function minuteDecisionOptions(selected) {
+    const options = [
+      ["pending", "Pending manual check"],
+      ["confirmed-match", "Confirmed: both values correct"],
+      ["tracker-correct", "Tracker correct; ServiceNow needs correction"],
+      ["servicenow-correct", "ServiceNow correct; tracker needs correction"],
+      ["investigate", "Needs investigation"],
+      ["missing-data", "Missing data"]
+    ];
+    return options.map(([value, label]) => `<option value="${value}"${selected === value ? " selected" : ""}>${label}</option>`).join("");
+  }
+
+  function categorySlideResultText(result) {
+    const messages = (result.messages || []).filter((message) => {
+      const text = String(message || "").toLowerCase();
+      return !text.includes("minute") && !text.includes("production time");
+    });
+    if (messages.length) return messages.join(" ");
+    if (result.categoryUpdated) return "Category updated; slides matched.";
+    return result.status || "Category and slides matched";
+  }
+
+  function minuteReviewKey(result) {
+    return [
+      result.requestNo || "",
+      displayValue(result.tracker?.minutes),
+      displayValue(result.serviceNow?.minutes)
+    ].join("|");
+  }
+
+  function updateMinuteReviewState(key, patch) {
+    if (!key) return;
+    const current = minuteReviewState.get(key) || { decision: "pending", note: "" };
+    minuteReviewState.set(key, { ...current, ...patch });
+    refreshMinuteReviewSummary();
+  }
+
+  function refreshMinuteReviewSummary() {
+    if (!modal) return;
+    const rows = Array.from(modal.querySelectorAll("[data-sn-minute-review-row]"));
+    let reviewed = 0;
+    for (const row of rows) {
+      const key = row.dataset.reviewKey;
+      const decision = minuteReviewState.get(key)?.decision || row.querySelector("[data-sn-minute-decision]")?.value || "pending";
+      const isReviewed = decision !== "pending";
+      row.classList.toggle("sn-minute-reviewed", isReviewed);
+      if (isReviewed) reviewed += 1;
+    }
+    const reviewedMetric = modal.querySelector("[data-sn-minute-reviewed] strong");
+    const pendingMetric = modal.querySelector("[data-sn-minute-pending] strong");
+    if (reviewedMetric) reviewedMetric.textContent = String(reviewed);
+    if (pendingMetric) pendingMetric.textContent = String(Math.max(0, rows.length - reviewed));
+  }
+
+  function downloadMinuteReviewCsv() {
+    if (!lastReportResults.length) return;
+    const headers = ["Request #", "Tracker rows", "Tracker minutes", "ServiceNow minutes", "Difference (SN - Tracker)", "Comparison", "Manual decision", "Reviewer note"];
+    const rows = lastReportResults.map((result) => {
+      const key = minuteReviewKey(result);
+      const review = minuteReviewState.get(key) || { decision: "pending", note: "" };
+      const trackerMinutes = numberOrNull(result.tracker?.minutes);
+      const serviceNowMinutes = numberOrNull(result.serviceNow?.minutes);
+      const difference = trackerMinutes === null || serviceNowMinutes === null ? null : serviceNowMinutes - trackerMinutes;
+      return [
+        result.requestNo || "",
+        Number(result.rowCount || 0),
+        trackerMinutes ?? "",
+        serviceNowMinutes ?? "",
+        difference ?? "",
+        minuteComparison(result),
+        minuteDecisionLabel(review.decision),
+        review.note || ""
+      ];
+    });
+    const csv = [headers, ...rows].map((row) => row.map(csvValue).join(",")).join("\r\n");
+    const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `DTP-Minutes-Comparison-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function csvValue(value) {
+    const text = String(value ?? "").replace(/\r?\n/g, " ");
+    return /[",]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  function minuteDecisionLabel(value) {
+    const labels = {
+      pending: "Pending manual check",
+      "confirmed-match": "Confirmed: both values correct",
+      "tracker-correct": "Tracker correct; ServiceNow needs correction",
+      "servicenow-correct": "ServiceNow correct; tracker needs correction",
+      investigate: "Needs investigation",
+      "missing-data": "Missing data"
+    };
+    return labels[value] || labels.pending;
+  }
+
+  function minuteComparison(result) {
+    const trackerMinutes = numberOrNull(result.tracker?.minutes);
+    const serviceNowMinutes = numberOrNull(result.serviceNow?.minutes);
+    if (trackerMinutes === null && serviceNowMinutes === null) return "Both missing";
+    if (trackerMinutes === null) return "Tracker missing";
+    if (serviceNowMinutes === null) return "ServiceNow missing";
+    return trackerMinutes === serviceNowMinutes ? "Exact match" : "Mismatch";
+  }
+
+  function hasExactMinutes(result) {
+    const trackerMinutes = numberOrNull(result.tracker?.minutes);
+    const serviceNowMinutes = numberOrNull(result.serviceNow?.minutes);
+    return trackerMinutes !== null && serviceNowMinutes !== null && trackerMinutes === serviceNowMinutes;
+  }
+
+  function needsMinuteAttention(result) {
+    return !hasExactMinutes(result);
+  }
+
+  function numberOrNull(value) {
+    if (value === null || value === undefined || value === "") return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function formatMinuteDifference(value) {
+    if (value === null) return "--";
+    if (value === 0) return "0";
+    return value > 0 ? `+${value}` : String(value);
   }
 
   function metric(label, value, className = "") {
