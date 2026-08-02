@@ -15,5 +15,9 @@ test("ServiceNow validation keeps worked minutes as a manual comparison", () => 
   assert.match(script, /Difference \(SN - Tracker\)/);
   assert.match(script, /Download minutes report/);
   assert.match(script, /does not change the tracker or ServiceNow minutes/);
-  assert.match(html, /20260802-minute-review-1/);
+  assert.match(script, /Are you sure you want to validate these rows\?/);
+  assert.match(script, /data-sn-cancel-confirm/);
+  assert.match(script, /data-sn-confirm-run/);
+  assert.match(script, /No filters are active/);
+  assert.match(html, /20260802-validation-confirm-1/);
 });

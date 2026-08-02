@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "20260802-minute-review-1";
+  const VERSION = "20260802-validation-confirm-1";
   const PAGE_SOURCE = "dtp-tracker-page";
   const HELPER_SOURCE = "dtp-servicenow-helper";
   let modal = null;
@@ -46,11 +46,77 @@
     }
     if (!modal) modal = buildModal();
     modal.hidden = false;
-    runValidation();
+    renderValidationConfirmation();
   }
 
   function closeValidation() {
     if (modal) modal.hidden = true;
+  }
+
+  function renderValidationConfirmation() {
+    if (!modal) return;
+    const requestNos = Array.from(new Set(visibleRows.map((row) => String(row.requestNo || "").trim()).filter(Boolean)));
+    const filters = currentValidationFilters();
+    const noFilters = !filters.search && !filters.from && !filters.to && !filters.categoryValue;
+    const largeSelection = visibleRows.length >= 100;
+    const requestPreview = requestNos.slice(0, 8);
+    const remainingRequests = Math.max(0, requestNos.length - requestPreview.length);
+
+    modal.querySelector("[data-sn-main]").innerHTML = `
+      <section class="sn-confirm-card" aria-labelledby="snConfirmTitle">
+        <div class="sn-confirm-heading">
+          <p>Confirm validation scope</p>
+          <h3 id="snConfirmTitle">Are you sure you want to validate these rows?</h3>
+          <span>ServiceNow has not been opened or searched yet. Review the current visible selection first.</span>
+        </div>
+        <div class="sn-summary sn-confirm-summary">
+          ${metric("Visible rows", visibleRows.length, largeSelection ? "warning" : "info")}
+          ${metric("Unique requests", requestNos.length, "info")}
+        </div>
+        ${noFilters ? `<div class="sn-status warning"><strong>No filters are active.</strong> This will validate every visible tracker row. Set a From/To date or another filter first if that is not your intention.</div>` : ""}
+        ${largeSelection ? `<div class="sn-status warning"><strong>Large selection.</strong> ${visibleRows.length} rows may take several minutes. Cancel and narrow the filters if needed.</div>` : ""}
+        <dl class="sn-confirm-scope">
+          <div><dt>Date range</dt><dd>${escapeHtml(validationDateScope(filters))}</dd></div>
+          <div><dt>Category</dt><dd>${escapeHtml(filters.categoryLabel)}</dd></div>
+          <div><dt>Search</dt><dd>${escapeHtml(filters.search || "None")}</dd></div>
+        </dl>
+        <div class="sn-confirm-requests">
+          <strong>Requests in this validation</strong>
+          <p>${requestPreview.length ? requestPreview.map(escapeHtml).join(", ") : "No request numbers found"}${remainingRequests ? `, +${remainingRequests} more` : ""}</p>
+        </div>
+        <div class="sn-actions sn-confirm-actions">
+          <button type="button" data-sn-cancel-confirm>Cancel</button>
+          <button type="button" data-sn-confirm-run>Yes, validate these rows</button>
+        </div>
+      </section>
+    `;
+    modal.querySelector("[data-sn-report]").innerHTML = "";
+    modal.querySelector("[data-sn-identity]").innerHTML = `
+      <h3>Nothing has started yet</h3>
+      <p>Cancel safely to return to the tracker without opening ServiceNow or changing any tracker row.</p>
+      <p><strong>ServiceNow writes:</strong> None</p>
+    `;
+    setButtonBusy(false);
+  }
+
+  function currentValidationFilters() {
+    const category = document.getElementById("categoryFilter");
+    return {
+      search: document.getElementById("searchInput")?.value?.trim() || "",
+      from: document.getElementById("dateFromFilter")?.value || "",
+      to: document.getElementById("dateToFilter")?.value || "",
+      categoryValue: category?.value || "",
+      categoryLabel: category?.value
+        ? category.selectedOptions?.[0]?.textContent?.trim() || category.value
+        : "All categories"
+    };
+  }
+
+  function validationDateScope(filters) {
+    if (filters.from && filters.to) return `${filters.from} to ${filters.to}`;
+    if (filters.from) return `${filters.from} only`;
+    if (filters.to) return `${filters.to} only`;
+    return "All dates";
   }
 
   function buildModal() {
@@ -93,9 +159,15 @@
     root.querySelector("[data-sn-close]").addEventListener("click", closeValidation);
     root.addEventListener("click", (event) => {
       if (event.target === root) closeValidation();
+      if (event.target.matches("[data-sn-cancel-confirm]")) closeValidation();
+      if (event.target.matches("[data-sn-confirm-run]")) runValidation();
       if (event.target.matches("[data-sn-run-again]")) {
         visibleRows = getVisibleRows();
-        runValidation();
+        if (!visibleRows.length) {
+          renderMessage("No visible tracker rows to validate.", "warning");
+          return;
+        }
+        renderValidationConfirmation();
       }
       if (event.target.matches("[data-sn-show-export]")) renderExportMode(lastConfig);
       if (event.target.matches("[data-sn-run-export]")) runExportValidation();

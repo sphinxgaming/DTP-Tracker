@@ -46,6 +46,8 @@ The browser helper is independent of Codex and keeps ServiceNow read-only. It ne
 
 Repeated rows are grouped by `Request #`; tracker slides and minutes are totaled before comparison. The tracker updates `Category of work` only. Worked minutes open in a dedicated manual-review form with tracker minutes, ServiceNow minutes, the difference, a reviewer decision, and notes; neither source is auto-changed. The completed minutes review can be downloaded as CSV. Each account has its own ServiceNow `Production` display-name mapping.
 
+Before validation starts, a confirmation screen shows the current visible-row count, unique requests, date/category/search filters, and a large-selection warning. `Cancel` exits without opening or searching ServiceNow.
+
 ServiceNow stays read-only. See `SERVICENOW-INTEGRATION.md` for browser-helper installation, company deployment, and optional Render API variables.
 
 ## Built-In DTP Tools

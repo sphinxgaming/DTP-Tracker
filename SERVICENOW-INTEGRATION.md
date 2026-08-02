@@ -118,13 +118,14 @@ without hard-coding one person's name.
 ## Automatic API validation behavior
 
 1. The designer selects a From/To range and any other tracker filters.
-2. `Validate ServiceNow` sends only the visible tracker row IDs to the backend.
-3. The backend groups repeated rows by Request #.
-4. Tracker slides and worked minutes are totaled for each request.
-5. ServiceNow category, slides, and the current designer's production minutes
+2. `Validate ServiceNow` first shows the visible row/request counts and active filters. `Cancel` stops without opening ServiceNow; only explicit confirmation starts validation.
+3. The confirmed visible tracker row IDs are sent to the backend.
+4. The backend groups repeated rows by Request #.
+5. Tracker slides and worked minutes are totaled for each request.
+6. ServiceNow category, slides, and the current designer's production minutes
    are read and compared.
-6. Category of work is updated when ServiceNow has a clear value.
-7. Slides are reported but never auto-edited. Worked minutes are shown in a dedicated manual-review form with tracker and ServiceNow values side by side, the calculated difference, a reviewer decision, and notes. Neither value is auto-edited.
-8. The manual minutes comparison can be downloaded as CSV for follow-up or audit.
+7. Category of work is updated when ServiceNow has a clear value.
+8. Slides are reported but never auto-edited. Worked minutes are shown in a dedicated manual-review form with tracker and ServiceNow values side by side, the calculated difference, a reviewer decision, and notes. Neither value is auto-edited.
+9. The manual minutes comparison can be downloaded as CSV for follow-up or audit.
 
 The tracker never writes to ServiceNow.

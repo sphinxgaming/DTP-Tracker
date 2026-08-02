@@ -391,6 +391,99 @@
   gap: 10px;
 }
 
+.sn-confirm-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  background: #fff;
+  border: 2px solid #0b6f98;
+}
+
+.sn-confirm-heading {
+  display: grid;
+  gap: 5px;
+}
+
+.sn-confirm-heading p,
+.sn-confirm-heading h3,
+.sn-confirm-heading span,
+.sn-confirm-requests p {
+  margin: 0;
+}
+
+.sn-confirm-heading p {
+  color: var(--fti-red);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.sn-confirm-heading h3 {
+  color: var(--fti-blue-dark);
+  font-size: 20px;
+}
+
+.sn-confirm-heading span,
+.sn-confirm-requests p {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.sn-confirm-summary {
+  margin-top: 0;
+}
+
+.sn-confirm-scope {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.sn-confirm-scope div {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+}
+
+.sn-confirm-scope dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.sn-confirm-scope dd {
+  margin: 0;
+  color: #000;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.sn-confirm-requests {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  background: #f7fbfd;
+  border-left: 4px solid #1ca8d2;
+}
+
+.sn-confirm-actions {
+  justify-content: flex-end;
+}
+
+.sn-confirm-actions button {
+  min-width: 170px;
+}
+
+.sn-confirm-actions [data-sn-confirm-run] {
+  color: #fff;
+  background: var(--fti-blue);
+  border-color: var(--fti-blue);
+}
+
 .sn-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -713,5 +806,18 @@
 
   .sn-minute-review-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sn-confirm-scope {
+    grid-template-columns: 1fr;
+  }
+
+  .sn-confirm-actions {
+    justify-content: stretch;
+  }
+
+  .sn-confirm-actions button {
+    flex: 1;
+    min-width: 0;
   }
 }
