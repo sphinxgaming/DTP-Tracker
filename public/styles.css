@@ -301,46 +301,6 @@ h1 span {
   border-width: 0;
 }
 
-.planned-break {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-  background: #fff;
-}
-
-.planned-break label {
-  display: grid;
-  gap: 4px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.planned-break select {
-  min-width: 0;
-  min-height: 32px;
-  padding: 0 8px;
-}
-
-.planned-break button {
-  align-self: end;
-  min-height: 32px;
-  padding: 0 12px;
-}
-
-.planned-break-label {
-  min-height: 32px;
-  padding: 8px 12px;
-  color: var(--fti-blue-dark);
-  background: #f4f8fb;
-  font-size: 12px;
-  font-weight: 800;
-  text-align: center;
-}
-
 .clock-panel {
   display: grid;
   grid-template-columns: minmax(170px, 0.65fr) minmax(320px, 1.35fr);
@@ -765,6 +725,15 @@ tbody tr:hover {
   background: #f8fbfd;
 }
 
+tbody tr.focused-row,
+tbody tr.focused-row:hover,
+tbody tr.focused-row:focus-within {
+  background: #fff3bf;
+  box-shadow: inset 5px 0 0 #f4b400;
+  outline: 2px solid rgba(244, 180, 0, 0.55);
+  outline-offset: -2px;
+}
+
 .cell-input,
 .cell-select {
   width: 100%;
@@ -1104,10 +1073,6 @@ body.auth-locked .auth-gate {
   .export-actions {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .planned-break {
-    grid-template-columns: 1fr;
   }
 
   .auth-bar,

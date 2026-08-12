@@ -4,9 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>DTP Time Tracker</title>
-    <link rel="stylesheet" href="/styles.css?v=20260801-team-api">
+    <link rel="stylesheet" href="/styles.css?v=20260813-simple-break-row-focus-1">
     <link rel="stylesheet" href="/onboarding.css?v=20260716-onboarding-tour">
-    <link rel="stylesheet" href="/servicenow-validation.css?v=20260802-validation-confirm-1">
   </head>
   <body class="auth-locked">
     <header class="app-header">
@@ -49,7 +48,7 @@
                 <button id="endBtn" type="button">End Job</button>
                 <button id="resetBtn" type="button">Reset All</button>
                 <span id="reviewTimer" class="review-display">00:00</span>
-                <button id="pauseBtn" type="button" title="Use Pause only when your current job is interrupted for review or quality checking. For normal breaks, use Break or Add break.">Pause</button>
+                <button id="pauseBtn" type="button" title="Use Pause only when your current job is interrupted for review or quality checking. For normal breaks, use Break.">Pause</button>
               </div>
             </article>
 
@@ -66,18 +65,6 @@
                 <button id="breakBtn" type="button">Break</button>
                 <button id="stopBreakBtn" type="button">Stop Break</button>
               </div>
-              <div class="planned-break">
-                <label>
-                  Start DXB
-                  <select id="breakStartSelect" aria-label="Break start in Dubai time"></select>
-                </label>
-                <label>
-                  End DXB
-                  <select id="breakEndSelect" aria-label="Break end in Dubai time"></select>
-                </label>
-                <button id="plannedBreakBtn" type="button">Add break</button>
-              </div>
-              <div id="plannedBreakLabel" class="planned-break-label">No planned break</div>
             </article>
 
             <article class="panel clock-panel">
@@ -308,8 +295,7 @@
 
     <datalist id="categoryOptions"></datalist>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260801-team-api" defer></script>
-    <script src="/onboarding.js?v=20260716-onboarding-tour" defer></script>
-    <script src="/servicenow-validation.js?v=20260802-validation-confirm-1" defer></script>
+    <script src="/app.js?v=20260813-simple-break-row-focus-1" defer></script>
+    <script src="/onboarding.js?v=20260813-simple-break-row-focus-1" defer></script>
   </body>
 </html>

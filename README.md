@@ -6,7 +6,7 @@ This is a local web-based replacement for the Excel/VBA DTP tracker. It keeps th
 - start a work countdown from the time budget
 - pause/resume work
 - park an unfinished job, handle an urgent QC job, then continue the original row
-- start/stop break tracking or add a planned DXB break window
+- start/stop break tracking
 - end the job and calculate worked hours minus break time
 - import old CSV/Excel rows that use the standard timesheet columns
 - generate a Word timesheet from the visible filtered rows
@@ -37,18 +37,6 @@ Keep the admin password private. For production/internal rollout, set `ADMIN_BOO
 New accounts see a `Get Started` welcome screen after their first login. The tour highlights the tracker in workflow order: job intake, review and production timing, pause/resume, breaks, DXB ETA, filters, editable rows, import/export, dashboard, hosted tools, and admin controls when applicable.
 
 Completing or skipping the tour is saved per user. A `Tour` button remains in the header so anyone can replay it later.
-
-## ServiceNow Validation
-
-The `Validate ServiceNow` button validates only the rows currently visible after Search/From/To/Category filters. The primary no-OAuth workflow uses the included Chrome/Edge companion extension. It opens a dedicated ServiceNow tab, searches each unique visible Request # through the designer's existing signed-in browser session, and reads Category, slides, and that designer's Production minutes.
-
-The browser helper is independent of Codex and keeps ServiceNow read-only. It never sends the ServiceNow password, cookie, or browser session to Render. A manual supplied-data fallback remains available, and an optional backend API mode can run if FTI later provides an approved read-only integration.
-
-Repeated rows are grouped by `Request #`; tracker slides and minutes are totaled before comparison. The tracker updates `Category of work` only. Worked minutes open in a dedicated manual-review form with tracker minutes, ServiceNow minutes, the difference, a reviewer decision, and notes; neither source is auto-changed. The completed minutes review can be downloaded as CSV. Each account has its own ServiceNow `Production` display-name mapping.
-
-Before validation starts, a confirmation screen shows the current visible-row count, unique requests, date/category/search filters, and a large-selection warning. `Cancel` exits without opening or searching ServiceNow.
-
-ServiceNow stays read-only. See `SERVICENOW-INTEGRATION.md` for browser-helper installation, company deployment, and optional Render API variables.
 
 ## Built-In DTP Tools
 

@@ -6,7 +6,7 @@ let currentUser = null;
 let activeViewUserId = "";
 let serverOffsetMs = 0;
 let toastTimer = null;
-let breakPlannerTouched = false;
+let focusedTaskId = "";
 const selectedTaskIds = new Set();
 const chartColors = ["#16a9dc", "#ef7531", "#48bd63", "#ed1c24", "#7b61ff", "#00a878", "#f4b400", "#7a5c58", "#2c7be5", "#d14d9f"];
 const DAILY_OVERTIME_THRESHOLD_SECONDS = 8 * 3600;
@@ -193,7 +193,6 @@ const capitalTimezones = [
 document.addEventListener("DOMContentLoaded", () => {
   bindElements();
   setupTimezones();
-  setupBreakPlanner();
   bindEvents();
   initializeAuth();
   setInterval(tick, 1000);
@@ -209,10 +208,6 @@ function bindElements() {
     "saveBreakBtn",
     "workTimer",
     "breakTimer",
-    "breakStartSelect",
-    "breakEndSelect",
-    "plannedBreakBtn",
-    "plannedBreakLabel",
     "reviewTimer",
     "reviewBtn",
     "startBtn",
@@ -301,16 +296,6 @@ function setupTimezones() {
   if (!els.timezoneSelect.value) els.timezoneSelect.value = DUBAI_TZ;
 }
 
-function setupBreakPlanner() {
-  const options = [];
-  for (let minute = 0; minute < 24 * 60; minute += 5) {
-    options.push(new Option(formatMinuteOfDay(minute), String(minute)));
-  }
-  els.breakStartSelect.replaceChildren(...options.map((option) => option.cloneNode(true)));
-  els.breakEndSelect.replaceChildren(...options.map((option) => option.cloneNode(true)));
-  syncBreakPlannerDefaults(true);
-}
-
 function isSupportedTimeZone(zone) {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: zone }).format(new Date());
@@ -335,14 +320,6 @@ function bindEvents() {
   });
   els.breakBtn.addEventListener("click", () => postAction("startBreak"));
   els.stopBreakBtn.addEventListener("click", () => postAction("stopBreak"));
-  els.breakStartSelect.addEventListener("change", () => {
-    breakPlannerTouched = true;
-    adjustBreakEndDefault();
-  });
-  els.breakEndSelect.addEventListener("change", () => {
-    breakPlannerTouched = true;
-  });
-  els.plannedBreakBtn.addEventListener("click", startPlannedBreak);
   els.endBtn.addEventListener("click", () => postAction("endJob"));
   els.resetBtn.addEventListener("click", () => postAction("resetTimers"));
   els.addManualRowBtn.addEventListener("click", addManualRow);
@@ -576,13 +553,6 @@ async function postAction(type, extra = {}) {
   }
 }
 
-async function startPlannedBreak() {
-  await postAction("startPlannedBreak", {
-    breakStartMinutes: Number(els.breakStartSelect.value),
-    breakEndMinutes: Number(els.breakEndSelect.value)
-  });
-}
-
 async function addManualRow() {
   const defaultDate = defaultManualDate();
   const dateWorked = prompt("Date worked (YYYY-MM-DD). You can edit it later in the table.", defaultDate);
@@ -668,7 +638,6 @@ function actionMessage(type) {
     resumeWork: "Work timer resumed.",
     continueTask: "Job continued.",
     startBreak: "Break started.",
-    startPlannedBreak: "Planned break started.",
     stopBreak: "Break stopped.",
     endJob: "Job finished.",
     resetTimers: "Timers reset.",
@@ -681,7 +650,6 @@ function renderAll() {
   renderAuthBar();
   renderSettings();
   renderCategoryControls();
-  syncBreakPlannerDefaults();
   tick();
   renderTable();
 }
@@ -885,7 +853,6 @@ function tick() {
   els.workTimer.classList.toggle("muted", phase === "paused" || phase === "break");
   renderStatePill(phase);
   renderExpectedFinish();
-  renderPlannedBreakLabel();
   renderButtons(phase);
 }
 
@@ -923,22 +890,6 @@ function expectedFinishForDisplay(timer) {
   return new Date(finishBaseMs + remainingWorkSeconds * 1000).toISOString();
 }
 
-function renderPlannedBreakLabel() {
-  const timer = state.timer || {};
-  if (timer.phase === "break" && timer.breakWindowLabel) {
-    els.plannedBreakLabel.textContent = `Loop break: ${timer.breakWindowLabel}`;
-    return;
-  }
-  const start = Number(els.breakStartSelect.value);
-  const end = Number(els.breakEndSelect.value);
-  const duration = plannedBreakDurationMinutes(start, end);
-  if (duration <= 0) {
-    els.plannedBreakLabel.textContent = "Choose an end time after the start time";
-    return;
-  }
-  els.plannedBreakLabel.textContent = `Planned: ${formatMinuteOfDay(start)} - ${formatMinuteOfDay(end)} (${duration} min)`;
-}
-
 function renderButtons(phase) {
   const hasActive = Boolean(state.timer.activeTaskId && getActiveTask());
   const canBreak = hasActive || hasTaskToday();
@@ -947,8 +898,6 @@ function renderButtons(phase) {
   els.pauseBtn.disabled = !(hasActive && ["work", "paused", "expired"].includes(phase));
   els.pauseBtn.textContent = phase === "paused" || phase === "expired" ? "Resume" : "Pause";
   els.breakBtn.disabled = !(canBreak && ["idle", "work", "paused", "expired"].includes(phase));
-  const plannedDuration = plannedBreakDurationMinutes(Number(els.breakStartSelect.value), Number(els.breakEndSelect.value));
-  els.plannedBreakBtn.disabled = !(canBreak && plannedDuration > 0 && ["idle", "work", "paused", "expired"].includes(phase));
   els.stopBreakBtn.disabled = phase !== "break";
   els.updateBudgetBtn.disabled = !hasActive;
   els.reviewBtn.disabled = false;
@@ -974,6 +923,7 @@ function renderTable() {
     const tr = document.createElement("tr");
     if (task.id === activeId) tr.classList.add("active-row");
     if (selectedTaskIds.has(task.id)) tr.classList.add("selected-row");
+    if (task.id === focusedTaskId) tr.classList.add("focused-row");
     if (task.pauseStartedAt && task.id !== activeId && !task.finishedAt) tr.classList.add("parked-row");
     tr.dataset.id = task.id;
     tr.innerHTML = `
@@ -1031,6 +981,7 @@ async function handleTableChange(event) {
     const id = event.target.dataset.id;
     if (id && event.target.checked) selectedTaskIds.add(id);
     if (id && !event.target.checked) selectedTaskIds.delete(id);
+    event.target.closest("tr[data-id]")?.classList.toggle("selected-row", Boolean(id && event.target.checked));
     renderSelectionControls();
     return;
   }
@@ -1050,6 +1001,9 @@ async function handleTableChange(event) {
 }
 
 async function handleTableClick(event) {
+  const clickedRow = event.target.closest("tr[data-id]");
+  if (clickedRow?.dataset.id) focusTaskRow(clickedRow.dataset.id);
+
   const continueButton = event.target.closest("button[data-action='continue']");
   if (continueButton) {
     const tr = continueButton.closest("tr");
@@ -1066,6 +1020,13 @@ async function handleTableClick(event) {
       showToast(error.message);
     }
     return;
+  }
+}
+
+function focusTaskRow(id) {
+  focusedTaskId = id || "";
+  for (const row of els.taskRows.querySelectorAll("tr[data-id]")) {
+    row.classList.toggle("focused-row", row.dataset.id === focusedTaskId);
   }
 }
 
@@ -1105,6 +1066,7 @@ function pruneSelectedTasks() {
   for (const id of Array.from(selectedTaskIds)) {
     if (!ids.has(id)) selectedTaskIds.delete(id);
   }
+  if (focusedTaskId && !ids.has(focusedTaskId)) focusedTaskId = "";
 }
 
 function renderSelectionControls() {
@@ -1681,48 +1643,6 @@ function secondsSinceIso(iso) {
   return Math.max(0, Math.floor((nowMs() - start) / 1000));
 }
 
-function syncBreakPlannerDefaults(force = false) {
-  if (!force && breakPlannerTouched) return;
-  const startMinute = roundUpToFive(getDubaiMinuteOfDay(new Date(nowMs())));
-  const remainingSeconds = state ? getBreakRemaining() : 15 * 60;
-  const remainingMinutes = Math.max(5, Math.round(remainingSeconds / 60) || 15);
-  const defaultDuration = Math.min(15, remainingMinutes);
-  els.breakStartSelect.value = String(startMinute);
-  els.breakEndSelect.value = String((startMinute + defaultDuration) % (24 * 60));
-}
-
-function adjustBreakEndDefault() {
-  const start = Number(els.breakStartSelect.value);
-  const end = Number(els.breakEndSelect.value);
-  if (plannedBreakDurationMinutes(start, end) > 0) return;
-  els.breakEndSelect.value = String((start + 15) % (24 * 60));
-}
-
-function plannedBreakDurationMinutes(start, end) {
-  const cleanStart = Number.isFinite(start) ? start : 0;
-  const cleanEnd = Number.isFinite(end) ? end : cleanStart + 15;
-  if (cleanEnd === cleanStart) return 0;
-  let duration = cleanEnd - cleanStart;
-  if (duration <= 0) duration += 24 * 60;
-  return duration;
-}
-
-function getDubaiMinuteOfDay(date) {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: DUBAI_TZ,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).formatToParts(date);
-  const map = {};
-  for (const part of parts) map[part.type] = part.value;
-  return Number(map.hour) * 60 + Number(map.minute);
-}
-
-function roundUpToFive(minute) {
-  return (Math.ceil(minute / 5) * 5) % (24 * 60);
-}
-
 function getWorkRemaining() {
   const timer = state.timer;
   const base = Number(timer.workRemainingBaseSeconds ?? timer.workRemainingSeconds ?? state.settings.workBudgetSeconds);
@@ -1840,15 +1760,6 @@ function formatTime(value, timeZone) {
     minute: "2-digit",
     hour12: true
   }).format(new Date(value));
-}
-
-function formatMinuteOfDay(minute) {
-  const normalized = ((Number(minute) % (24 * 60)) + (24 * 60)) % (24 * 60);
-  const h24 = Math.floor(normalized / 60);
-  const minutes = normalized % 60;
-  const suffix = h24 >= 12 ? "PM" : "AM";
-  const h12 = h24 % 12 || 12;
-  return `${pad2(h12)}:${pad2(minutes)} ${suffix}`;
 }
 
 function formatDateWorked(value) {

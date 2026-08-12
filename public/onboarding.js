@@ -19,8 +19,8 @@
     },
     {
       target: ".break-panel",
-      title: "Track or plan a break",
-      text: "Use Break for an immediate break, or choose a Start DXB and End DXB time before selecting Add break. Used break time reduces the remaining break balance and extends your expected finish."
+      title: "Track a break",
+      text: "Use Break when your break starts and Stop Break when you return. Used break time reduces the remaining break balance and extends your expected finish."
     },
     {
       target: ".clock-panel",
@@ -35,7 +35,7 @@
     {
       target: ".table-wrap",
       title: "Review and correct your rows",
-      text: "Date, worked hours, slides, category, client, deadline, and break are editable. Request # is locked against accidental edits. Selecting a row highlights it, and Continue resumes a parked unfinished job."
+      text: "Date, worked hours, slides, category, client, deadline, and break are editable. Request # is locked against accidental edits. Clicking anywhere in a row highlights the whole row, and Continue resumes a parked unfinished job."
     },
     {
       target: ".export-actions",
