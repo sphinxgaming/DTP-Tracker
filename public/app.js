@@ -345,6 +345,37 @@ function bindEvents() {
     if (event.target === els.adminModal) closeAdminPanel();
   });
   els.createUserForm.addEventListener("submit", createDesignerUser);
+  bindPasswordToggles();
+}
+
+function bindPasswordToggles() {
+  document.querySelectorAll("[data-password-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const input = document.getElementById(button.dataset.passwordToggle);
+      if (!input) return;
+      const visible = input.type === "password";
+      setPasswordVisibility(button, input, visible);
+      input.focus({ preventScroll: true });
+      if (typeof input.setSelectionRange === "function") {
+        const cursor = input.value.length;
+        input.setSelectionRange(cursor, cursor);
+      }
+    });
+  });
+}
+
+function setPasswordVisibility(button, input, visible) {
+  input.type = visible ? "text" : "password";
+  const action = visible ? "Hide password" : "Show password";
+  button.setAttribute("aria-label", action);
+  button.setAttribute("title", action);
+  button.setAttribute("aria-pressed", String(visible));
+}
+
+function hidePassword(inputId) {
+  const input = document.getElementById(inputId);
+  const button = document.querySelector(`[data-password-toggle="${inputId}"]`);
+  if (input && button) setPasswordVisibility(button, input, false);
 }
 
 async function api(path, options = {}) {
@@ -392,6 +423,7 @@ async function initializeAuth() {
 }
 
 function showAuthGate() {
+  hidePassword("loginPassword");
   document.body.classList.add("auth-locked");
   els.authGate.hidden = false;
   els.loginForm.hidden = false;
@@ -456,6 +488,7 @@ async function loginUser(event) {
     activeViewUserId = "";
     localStorage.removeItem("adminViewUserId");
     els.loginPassword.value = "";
+    hidePassword("loginPassword");
     hideAuthGate();
     await loadState();
     showToast("Logged in.");
@@ -660,6 +693,7 @@ async function openAdminPanel() {
 }
 
 function closeAdminPanel() {
+  hidePassword("newUserPassword");
   if (els.adminModal) els.adminModal.hidden = true;
 }
 
@@ -712,6 +746,7 @@ async function createDesignerUser(event) {
     els.newUserDisplayName.value = "";
     els.newUsername.value = "";
     els.newUserPassword.value = "";
+    hidePassword("newUserPassword");
     els.newUserRole.value = "designer";
     await loadAdminUsers();
     showToast(`Account created for ${data.user.displayName || data.user.username}.`);

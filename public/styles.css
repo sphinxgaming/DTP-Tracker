@@ -903,6 +903,58 @@ body.auth-locked .auth-gate {
   border-color: var(--fti-blue);
 }
 
+.password-control {
+  position: relative;
+  display: block;
+}
+
+.password-control input {
+  width: 100%;
+  padding-right: 48px;
+}
+
+.auth-form .password-toggle,
+.admin-create .password-toggle {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: #fff;
+  color: var(--fti-blue);
+}
+
+.auth-form .password-toggle:hover,
+.admin-create .password-toggle:hover {
+  background: #eef7fb;
+}
+
+.password-toggle svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.password-toggle[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  box-shadow: 0 0 0 1px #fff;
+  transform: rotate(-45deg);
+}
+
 .admin-card {
   width: min(940px, 100%);
   max-height: min(86vh, 820px);

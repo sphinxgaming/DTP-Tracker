@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>DTP Time Tracker</title>
-    <link rel="stylesheet" href="/styles.css?v=20260813-admin-delete-1">
+    <link rel="stylesheet" href="/styles.css?v=20260813-password-eye-1">
     <link rel="stylesheet" href="/onboarding.css?v=20260716-onboarding-tour">
   </head>
   <body class="auth-locked">
@@ -209,7 +209,15 @@
           </label>
           <label>
             Password
-            <input id="loginPassword" type="password" autocomplete="current-password">
+            <span class="password-control">
+              <input id="loginPassword" type="password" autocomplete="current-password">
+              <button class="password-toggle" type="button" data-password-toggle="loginPassword" aria-label="Show password" title="Show password" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </span>
           </label>
           <button type="submit">Login</button>
         </form>
@@ -237,7 +245,15 @@
           </label>
           <label>
             Password
-            <input id="newUserPassword" type="password" placeholder="At least 8 characters">
+            <span class="password-control">
+              <input id="newUserPassword" type="password" autocomplete="new-password" placeholder="At least 8 characters">
+              <button class="password-toggle" type="button" data-password-toggle="newUserPassword" aria-label="Show password" title="Show password" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </span>
           </label>
           <label>
             Role
@@ -291,7 +307,7 @@
 
     <datalist id="categoryOptions"></datalist>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260813-admin-delete-1" defer></script>
-    <script src="/onboarding.js?v=20260813-admin-delete-1" defer></script>
+    <script src="/app.js?v=20260813-password-eye-1" defer></script>
+    <script src="/onboarding.js?v=20260813-password-eye-1" defer></script>
   </body>
 </html>

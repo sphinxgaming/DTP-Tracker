@@ -16,7 +16,7 @@ test("tracker keeps breaks simple and highlights the clicked row", () => {
   assert.doesNotMatch(html, /breakStartSelect|breakEndSelect|plannedBreakBtn|plannedBreakLabel/);
   assert.doesNotMatch(html, /servicenow-validation/);
   assert.doesNotMatch(html, /Validate ServiceNow/);
-  assert.match(html, /20260813-admin-delete-1/);
+  assert.match(html, /20260813-password-eye-1/);
 
   assert.match(app, /let focusedTaskId = ""/);
   assert.match(app, /function focusTaskRow\(id\)/);
@@ -24,6 +24,18 @@ test("tracker keeps breaks simple and highlights the clicked row", () => {
   assert.match(styles, /tbody tr\.focused-row/);
   assert.match(onboarding, /Clicking anywhere in a row highlights the whole row/);
   assert.doesNotMatch(onboarding, /Start DXB|Add break/);
+});
+
+test("password fields have accessible visibility toggles", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+
+  assert.match(html, /data-password-toggle="loginPassword"[^>]+aria-label="Show password"/);
+  assert.match(html, /data-password-toggle="newUserPassword"[^>]+aria-label="Show password"/);
+  assert.match(app, /function bindPasswordToggles\(\)/);
+  assert.match(app, /input\.type = visible \? "text" : "password"/);
+  assert.match(styles, /\.password-toggle\[aria-pressed="true"\]::after/);
 });
 
 test("admin accounts expose deletion without ServiceNow-name controls", () => {
