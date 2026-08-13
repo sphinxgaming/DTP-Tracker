@@ -377,7 +377,6 @@ function safeUser(user) {
     id: user.id,
     username: user.username,
     displayName: user.displayName,
-    serviceNowProductionName: user.serviceNowProductionName || user.displayName,
     role: user.role,
     active: user.active !== false,
     mustChangePassword: Boolean(user.mustChangePassword),
@@ -2924,7 +2923,6 @@ async function handleApi(req, res, url) {
       const user = createUser(rootDb, {
         username: body.username,
         displayName: body.displayName,
-        serviceNowProductionName: body.serviceNowProductionName,
         password: body.password,
         role: body.role === "admin" ? "admin" : "designer",
         mustChangePassword: Boolean(body.mustChangePassword)
@@ -2938,6 +2936,35 @@ async function handleApi(req, res, url) {
   }
 
   const userMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+  if (userMatch && req.method === "DELETE") {
+    if (authUser.role !== "admin") return json(res, 403, { error: "Admin access required." });
+    const id = decodeURIComponent(userMatch[1]);
+    const user = rootDb.users.find((item) => item.id === id);
+    if (!user) return json(res, 404, { error: "User not found." });
+    if (user.id === authUser.id) {
+      return json(res, 400, { error: "You cannot delete your own signed-in admin account." });
+    }
+    const hasOtherActiveAdmin = rootDb.users.some((item) => item.id !== user.id && item.active !== false && item.role === "admin");
+    if (user.role === "admin" && !hasOtherActiveAdmin) {
+      return json(res, 400, { error: "At least one active admin is required." });
+    }
+
+    const deletedRows = rootDb.tasks.filter((task) => task.ownerId === user.id).length;
+    rootDb.tasks = rootDb.tasks.filter((task) => task.ownerId !== user.id);
+    rootDb.sessions = rootDb.sessions.filter((session) => session.userId !== user.id);
+    rootDb.users = rootDb.users.filter((item) => item.id !== user.id);
+    delete rootDb.userSettings[user.id];
+    delete rootDb.userTimers[user.id];
+    audit(rootDb, "admin.userDelete", {
+      adminId: authUser.id,
+      userId: user.id,
+      username: user.username,
+      deletedRows
+    });
+    await saveDb(rootDb);
+    return json(res, 200, { deleted: true, userId: user.id, deletedRows });
+  }
+
   if (userMatch && req.method === "PATCH") {
     if (authUser.role !== "admin") return json(res, 403, { error: "Admin access required." });
     const id = decodeURIComponent(userMatch[1]);

@@ -16,7 +16,7 @@ test("tracker keeps breaks simple and highlights the clicked row", () => {
   assert.doesNotMatch(html, /breakStartSelect|breakEndSelect|plannedBreakBtn|plannedBreakLabel/);
   assert.doesNotMatch(html, /servicenow-validation/);
   assert.doesNotMatch(html, /Validate ServiceNow/);
-  assert.match(html, /20260813-simple-break-row-focus-1/);
+  assert.match(html, /20260813-admin-delete-1/);
 
   assert.match(app, /let focusedTaskId = ""/);
   assert.match(app, /function focusTaskRow\(id\)/);
@@ -24,4 +24,14 @@ test("tracker keeps breaks simple and highlights the clicked row", () => {
   assert.match(styles, /tbody tr\.focused-row/);
   assert.match(onboarding, /Clicking anywhere in a row highlights the whole row/);
   assert.doesNotMatch(onboarding, /Start DXB|Add break/);
+});
+
+test("admin accounts expose deletion without ServiceNow-name controls", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+
+  assert.doesNotMatch(html, /newUserServiceNowName|ServiceNow production name/i);
+  assert.doesNotMatch(app, /data-admin-action="servicenow-name"|ServiceNow production name updated/i);
+  assert.match(app, /data-admin-action="delete-user"/);
+  assert.match(app, /method: "DELETE"/);
 });

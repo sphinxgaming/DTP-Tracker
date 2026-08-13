@@ -261,7 +261,6 @@ function bindElements() {
     "createUserForm",
     "newUserDisplayName",
     "newUsername",
-    "newUserServiceNowName",
     "newUserPassword",
     "newUserRole",
     "adminUsers"
@@ -679,18 +678,17 @@ function renderAdminUsers(users) {
     return;
   }
   els.adminUsers.innerHTML = users.map((user) => `
-    <article class="admin-user ${user.active ? "" : "inactive"} ${activeViewUserId === user.id || (!activeViewUserId && currentUser?.id === user.id) ? "viewing" : ""}" data-user-id="${escapeAttr(user.id)}" data-user-role="${escapeAttr(user.role)}" data-service-now-name="${escapeAttr(user.serviceNowProductionName || user.displayName || "")}">
+    <article class="admin-user ${user.active ? "" : "inactive"} ${activeViewUserId === user.id || (!activeViewUserId && currentUser?.id === user.id) ? "viewing" : ""}" data-user-id="${escapeAttr(user.id)}" data-user-role="${escapeAttr(user.role)}" data-user-name="${escapeAttr(user.displayName || user.username)}" data-row-count="${Number(user.rowCount || 0)}">
       <div>
         <strong>${escapeHtml(user.displayName || user.username)}</strong>
         <span>${escapeHtml(user.username)} | ${escapeHtml(user.role)} | ${Number(user.rowCount || 0)} row(s)</span>
-        <span>ServiceNow Production: ${escapeHtml(user.serviceNowProductionName || user.displayName || "Not set")}</span>
       </div>
       <div class="admin-user-actions">
         <button type="button" data-admin-action="view-tracker">${activeViewUserId === user.id || (!activeViewUserId && currentUser?.id === user.id) ? "Viewing" : "View tracker"}</button>
-        <button type="button" data-admin-action="servicenow-name">ServiceNow name</button>
         <button type="button" data-admin-action="toggle-role">${user.role === "admin" ? "Make designer" : "Make admin"}</button>
         <button type="button" data-admin-action="toggle-active">${user.active ? "Deactivate" : "Activate"}</button>
         <button type="button" data-admin-action="reset-password">Reset password</button>
+        ${user.id === currentUser?.id ? "" : '<button type="button" class="danger" data-admin-action="delete-user">Delete</button>'}
       </div>
     </article>
   `).join("");
@@ -707,14 +705,12 @@ async function createDesignerUser(event) {
       body: JSON.stringify({
         displayName: els.newUserDisplayName.value,
         username: els.newUsername.value,
-        serviceNowProductionName: els.newUserServiceNowName.value,
         password: els.newUserPassword.value,
         role: els.newUserRole.value
       })
     });
     els.newUserDisplayName.value = "";
     els.newUsername.value = "";
-    els.newUserServiceNowName.value = "";
     els.newUserPassword.value = "";
     els.newUserRole.value = "designer";
     await loadAdminUsers();
@@ -760,24 +756,6 @@ async function handleAdminUserAction(event) {
       return;
     }
 
-    if (action === "servicenow-name") {
-      const currentName = card.dataset.serviceNowName || "";
-      const serviceNowProductionName = prompt("Exact Production name shown in ServiceNow:", currentName);
-      if (serviceNowProductionName === null) return;
-      if (!serviceNowProductionName.trim()) {
-        showToast("ServiceNow production name cannot be blank.");
-        return;
-      }
-      await api(`/api/admin/users/${encodeURIComponent(userId)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ serviceNowProductionName: serviceNowProductionName.trim() })
-      });
-      await loadAdminUsers();
-      if (state?.viewUser?.id === userId) await loadState(true, { preserveScroll: true });
-      showToast("ServiceNow production name updated.");
-      return;
-    }
-
     if (action === "toggle-active") {
       const isActive = !card.classList.contains("inactive");
       await api(`/api/admin/users/${encodeURIComponent(userId)}`, {
@@ -798,6 +776,25 @@ async function handleAdminUserAction(event) {
       });
       await loadAdminUsers();
       showToast("Password reset.");
+      return;
+    }
+
+    if (action === "delete-user") {
+      const userName = card.dataset.userName || "this account";
+      const rowCount = Number(card.dataset.rowCount || 0);
+      const rowWarning = rowCount
+        ? ` and ${rowCount} tracker row${rowCount === 1 ? "" : "s"}`
+        : "";
+      if (!confirm(`Permanently delete ${userName}${rowWarning}? This cannot be undone.`)) return;
+      const data = await api(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+      if (activeViewUserId === userId) {
+        activeViewUserId = "";
+        localStorage.removeItem("adminViewUserId");
+        selectedTaskIds.clear();
+        await loadState(true, { preserveScroll: true });
+      }
+      await loadAdminUsers();
+      showToast(`Account deleted. ${Number(data.deletedRows || 0)} tracker row(s) removed.`);
     }
   } catch (error) {
     showToast(error.message);

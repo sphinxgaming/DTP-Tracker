@@ -932,7 +932,7 @@ body.auth-locked .auth-gate {
 
 .admin-create {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(170px, 1.25fr) minmax(130px, 1fr) 110px auto;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) 110px auto;
   gap: 10px;
   align-items: end;
   padding: 16px;
@@ -987,6 +987,18 @@ body.auth-locked .auth-gate {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.admin-user-actions .danger {
+  color: #a20f1b;
+  border-color: #d9a2a7;
+  background: #fff7f7;
+}
+
+.admin-user-actions .danger:hover {
+  color: #fff;
+  border-color: #a20f1b;
+  background: #a20f1b;
 }
 
 .empty-admin {
