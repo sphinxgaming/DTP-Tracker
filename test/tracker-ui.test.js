@@ -16,7 +16,7 @@ test("tracker keeps breaks simple and highlights the clicked row", () => {
   assert.doesNotMatch(html, /breakStartSelect|breakEndSelect|plannedBreakBtn|plannedBreakLabel/);
   assert.doesNotMatch(html, /servicenow-validation/);
   assert.doesNotMatch(html, /Validate ServiceNow/);
-  assert.match(html, /20260820-operations-2/);
+  assert.match(html, /20260820-operations-theme-3/);
 
   assert.match(app, /let focusedTaskId = ""/);
   assert.match(app, /function focusTaskRow\(id\)/);
@@ -65,4 +65,18 @@ test("admins get a dedicated centralized operations workspace", () => {
   assert.match(app, /\/api\/admin\/operations/);
   assert.match(app, /Designer workload:/);
   assert.match(app, /await openOperationsWorkspace\(\)/);
+});
+
+test("operations workspace has consistent status styling and a persistent theme switch", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+
+  assert.match(html, /id="themeToggle"[^>]+role="switch"/);
+  assert.match(app, /const THEME_STORAGE_KEY = "dtpTheme"/);
+  assert.match(app, /function applyTheme\(theme, persist = true\)/);
+  assert.match(styles, /:root\[data-theme="dark"\]/);
+  assert.match(styles, /\.presence-pill\.idle/);
+  assert.match(styles, /\.presence-pill\.work/);
+  assert.doesNotMatch(app, /designer-identity[^\n]+escapeHtml\(user\.username\)[^\n]+<\/span>/);
 });

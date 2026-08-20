@@ -4,7 +4,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>DTP Time Tracker</title>
-    <link rel="stylesheet" href="/styles.css?v=20260820-operations-2">
+    <script>
+      try {
+        const savedTheme = localStorage.getItem("dtpTheme");
+        document.documentElement.dataset.theme = savedTheme || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      } catch {
+        document.documentElement.dataset.theme = "light";
+      }
+    </script>
+    <link rel="stylesheet" href="/styles.css?v=20260820-operations-theme-3">
     <link rel="stylesheet" href="/onboarding.css?v=20260716-onboarding-tour">
   </head>
   <body class="auth-locked">
@@ -21,6 +29,10 @@
         <span id="headerDubaiTime">--</span>
         <small>Dubai (DXB) time</small>
       </div>
+      <button id="themeToggle" class="theme-switch" type="button" role="switch" aria-checked="false" aria-label="Switch to dark theme" title="Switch to dark theme">
+        <span id="themeLabel" class="theme-switch-label">Light</span>
+        <span class="theme-switch-control" aria-hidden="true"><span></span></span>
+      </button>
       <div class="auth-bar">
         <span id="currentUserBadge">Not signed in</span>
         <button id="tourBtn" type="button" hidden>Get Started</button>
@@ -445,7 +457,7 @@
 
     <datalist id="categoryOptions"></datalist>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260820-operations-2" defer></script>
-    <script src="/onboarding.js?v=20260820-operations-2" defer></script>
+    <script src="/app.js?v=20260820-operations-theme-3" defer></script>
+    <script src="/onboarding.js?v=20260820-operations-theme-3" defer></script>
   </body>
 </html>

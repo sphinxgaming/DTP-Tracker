@@ -14,6 +14,7 @@ const selectedTaskIds = new Set();
 const chartColors = ["#16a9dc", "#ef7531", "#48bd63", "#ed1c24", "#7b61ff", "#00a878", "#f4b400", "#7a5c58", "#2c7be5", "#d14d9f"];
 const DAILY_OVERTIME_THRESHOLD_SECONDS = 8 * 3600;
 const MINIMUM_COUNTABLE_OVERTIME_SECONDS = 30 * 60;
+const THEME_STORAGE_KEY = "dtpTheme";
 
 const capitalTimezones = [
   ["Abu Dhabi, UAE", "Asia/Dubai"],
@@ -195,6 +196,7 @@ const capitalTimezones = [
 
 document.addEventListener("DOMContentLoaded", () => {
   bindElements();
+  initializeTheme();
   setupTimezones();
   bindEvents();
   initializeAuth();
@@ -250,6 +252,8 @@ function bindElements() {
     "pieLegend",
     "toast",
     "currentUserBadge",
+    "themeToggle",
+    "themeLabel",
     "tourBtn",
     "operationsBtn",
     "trackerBtn",
@@ -327,6 +331,22 @@ function setupTimezones() {
   if (!els.timezoneSelect.value) els.timezoneSelect.value = DUBAI_TZ;
 }
 
+function initializeTheme() {
+  const current = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  applyTheme(current, false);
+}
+
+function applyTheme(theme, persist = true) {
+  const next = theme === "dark" ? "dark" : "light";
+  const target = next === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  els.themeToggle.setAttribute("aria-checked", String(next === "dark"));
+  els.themeToggle.setAttribute("aria-label", `Switch to ${target} theme`);
+  els.themeToggle.title = `Switch to ${target} theme`;
+  els.themeLabel.textContent = next === "dark" ? "Dark" : "Light";
+  if (persist) localStorage.setItem(THEME_STORAGE_KEY, next);
+}
+
 function isSupportedTimeZone(zone) {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: zone }).format(new Date());
@@ -337,6 +357,9 @@ function isSupportedTimeZone(zone) {
 }
 
 function bindEvents() {
+  els.themeToggle.addEventListener("click", () => {
+    applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  });
   els.reviewBtn.addEventListener("click", submitReview);
   els.reviewSubmitBtn.addEventListener("click", submitReview);
   els.jobInput.addEventListener("keydown", (event) => {
@@ -893,7 +916,7 @@ function renderOperationsDesigners() {
     return `
       <tr data-ops-user-id="${escapeAttr(user.id)}">
         <td>
-          <div class="designer-identity"><strong>${escapeHtml(user.displayName || user.username)}</strong><span>${escapeHtml(user.username)}</span></div>
+          <div class="designer-identity"><strong>${escapeHtml(user.displayName || user.username)}</strong></div>
           <input class="ops-inline-input" data-ops-profile="shiftLabel" value="${escapeAttr(entry.shiftLabel || "")}" placeholder="Shift in DXB" aria-label="Shift for ${escapeAttr(user.displayName || user.username)}" ${canCoordinate ? "" : "disabled"}>
         </td>
         <td>${current ? compactJobMarkup(current) : `<span class="muted-value">No active job</span>`}</td>
