@@ -1611,6 +1611,11 @@ body.auth-locked .auth-gate {
   background: var(--soft);
 }
 
+.operations-item-form[hidden],
+.operations-link-form[hidden] {
+  display: none !important;
+}
+
 .operations-item-form #operationsNotes {
   grid-column: span 3;
 }

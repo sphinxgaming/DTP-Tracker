@@ -597,7 +597,9 @@ function serializeAdminOperations(db, actor) {
         breakWindowLabel: timer.breakWindowLabel || "",
         nextItems: nextItems.slice(0, 4),
         qcItems: qcItems.slice(0, 4),
-        rowCount: root.tasks.filter((candidate) => candidate.ownerId === user.id).length
+        ...(actor.role === "admin"
+          ? { rowCount: root.tasks.filter((candidate) => candidate.ownerId === user.id).length }
+          : {})
       };
     })
     .sort((a, b) => a.user.displayName.localeCompare(b.user.displayName));
@@ -3222,6 +3224,10 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/servicenow/config") {
     return json(res, 200, serviceNowConfigStatus(db));
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/operations") {
+    return json(res, 200, serializeAdminOperations(rootDb, authUser));
   }
 
   if (req.method === "GET" && url.pathname === "/api/admin/users") {

@@ -542,8 +542,8 @@ function renderAuthBar() {
     : base;
   els.logoutBtn.hidden = false;
   els.tourBtn.hidden = workspaceMode !== "tracker";
-  els.operationsBtn.hidden = user.role !== "admin";
-  els.trackerBtn.hidden = user.role !== "admin";
+  els.operationsBtn.hidden = false;
+  els.trackerBtn.hidden = false;
   els.adminPanelBtn.hidden = user.role !== "admin";
   els.operationsBtn.classList.toggle("active", workspaceMode === "operations");
   els.trackerBtn.classList.toggle("active", workspaceMode === "tracker");
@@ -635,7 +635,7 @@ function setState(data, options = {}) {
 
 function refreshStateQuietly() {
   if (isEditingField()) return;
-  if (workspaceMode === "operations" && currentUser?.role === "admin") {
+  if (workspaceMode === "operations" && currentUser) {
     loadAdminOperations(true);
   } else {
     loadState(true, { preserveScroll: true });
@@ -792,7 +792,7 @@ function showWorkspace(mode) {
 }
 
 async function openOperationsWorkspace() {
-  if (!currentUser || currentUser.role !== "admin") return;
+  if (!currentUser) return;
   activeViewUserId = "";
   localStorage.removeItem("adminViewUserId");
   state = null;
@@ -820,9 +820,9 @@ async function openDesignerTracker(userId) {
 }
 
 async function loadAdminOperations(silent = false) {
-  if (!currentUser || currentUser.role !== "admin") return;
+  if (!currentUser) return;
   try {
-    const data = await api("/api/admin/operations");
+    const data = await api("/api/operations");
     adminOperations = data;
     serverOffsetMs = Date.parse(data.serverNow) - Date.now();
     renderAdminOperations();
@@ -871,6 +871,7 @@ function renderOperationsAssignees() {
   }
   els.operationsAssignee.value = designers.some((user) => user.id === current) ? current : "";
   const canCoordinate = Boolean(adminOperations?.capabilities?.coordinate);
+  els.operationsItemForm.hidden = !canCoordinate;
   for (const field of els.operationsItemForm.elements) field.disabled = !canCoordinate;
 }
 
@@ -900,8 +901,12 @@ function compactJobMarkup(item) {
 function renderOperationsDesigners() {
   const designers = adminOperations?.designers || [];
   const canCoordinate = Boolean(adminOperations?.capabilities?.coordinate);
+  const canViewTrackers = currentUser?.role === "admin";
+  document.querySelectorAll("[data-operations-admin-only]").forEach((element) => {
+    element.hidden = !canViewTrackers;
+  });
   if (!designers.length) {
-    els.operationsDesignerRows.innerHTML = `<tr><td colspan="7" class="empty">No active designer accounts.</td></tr>`;
+    els.operationsDesignerRows.innerHTML = `<tr><td colspan="${canViewTrackers ? 7 : 6}" class="empty">No active designer accounts.</td></tr>`;
     return;
   }
   els.operationsDesignerRows.innerHTML = designers.map((entry) => {
@@ -917,14 +922,16 @@ function renderOperationsDesigners() {
       <tr data-ops-user-id="${escapeAttr(user.id)}">
         <td>
           <div class="designer-identity"><strong>${escapeHtml(user.displayName || user.username)}</strong></div>
-          <input class="ops-inline-input" data-ops-profile="shiftLabel" value="${escapeAttr(entry.shiftLabel || "")}" placeholder="Shift in DXB" aria-label="Shift for ${escapeAttr(user.displayName || user.username)}" ${canCoordinate ? "" : "disabled"}>
+          ${canCoordinate
+            ? `<input class="ops-inline-input" data-ops-profile="shiftLabel" value="${escapeAttr(entry.shiftLabel || "")}" placeholder="Shift in DXB" aria-label="Shift for ${escapeAttr(user.displayName || user.username)}">`
+            : `<span class="cell-subtext">${escapeHtml(entry.shiftLabel || "Shift not set")}</span>`}
         </td>
         <td>${current ? compactJobMarkup(current) : `<span class="muted-value">No active job</span>`}</td>
         <td><strong>${escapeHtml(eta)}</strong><span class="cell-subtext">${escapeHtml(entry.activeTask?.deadlineText || "No current deadline")}</span></td>
         <td>${qc.length ? qc.map((item) => `<span class="lane-chip ${escapeAttr(item.lane)}">${escapeHtml(item.lane === "rework" ? "Rework" : "Waiting QC")} · ${escapeHtml(item.requestNo)}</span>`).join("") : `<span class="muted-value">Clear</span>`}</td>
         <td>${next.length ? next.map((item, index) => `<div class="next-job-line"><b>${index + 1}</b>${requestCopyMarkup(item.requestNo)}<span>${escapeHtml(item.etaText || item.deadlineText || "ETA not set")}</span></div>`).join("") : `<span class="muted-value">No queued job</span>`}</td>
         <td><span class="presence-pill ${escapeAttr(entry.phase)}">${escapeHtml(availability)}</span>${entry.breakWindowLabel ? `<span class="cell-subtext">${escapeHtml(entry.breakWindowLabel)}</span>` : ""}</td>
-        <td><button type="button" data-ops-action="view-tracker" data-user-id="${escapeAttr(user.id)}">View tracker</button></td>
+        ${canViewTrackers ? `<td><button type="button" data-ops-action="view-tracker" data-user-id="${escapeAttr(user.id)}">View tracker</button></td>` : ""}
       </tr>
     `;
   }).join("");
@@ -948,14 +955,22 @@ function renderOperationsQueues() {
   const qc = items.filter((item) => item.lane === "qc");
   const approved = items.filter((item) => item.lane === "approved").sort((a, b) => Date.parse(b.completedAt || b.updatedAt) - Date.parse(a.completedAt || a.updatedAt));
 
-  els.operationsQueueRows.innerHTML = queue.length ? queue.map((item) => `
+  els.operationsQueueRows.innerHTML = queue.length ? queue.map((item, index) => `
     <tr data-ops-item-id="${escapeAttr(item.id)}">
       <td>${requestCopyMarkup(item.requestNo)}<span class="lane-chip ${escapeAttr(item.lane)}">${escapeHtml(item.lane === "handover" ? "Handover" : item.lane === "rework" ? "Rework" : "Next")}</span></td>
       <td><strong>${escapeHtml(item.client || "No client")}</strong><span class="cell-subtext">${escapeHtml(item.slides || "--")} slide(s) · ${escapeHtml(item.category || "Uncategorized")}</span></td>
-      <td><select class="ops-inline-select" data-ops-item-field="assignedUserId" ${canCoordinate ? "" : "disabled"}>${userOptions(item.assignedUserId)}</select></td>
-      <td><input class="ops-inline-input" data-ops-item-field="etaText" value="${escapeAttr(item.etaText || "")}" placeholder="ETA in DXB" ${canCoordinate ? "" : "disabled"}><input class="ops-inline-input" data-ops-item-field="deadlineText" value="${escapeAttr(item.deadlineText || "")}" placeholder="Deadline" ${canCoordinate ? "" : "disabled"}></td>
-      <td><button type="button" data-ops-action="move-up" ${canCoordinate ? "" : "disabled"} aria-label="Move ${escapeAttr(item.requestNo)} up" title="Move up">↑</button><button type="button" data-ops-action="move-down" ${canCoordinate ? "" : "disabled"} aria-label="Move ${escapeAttr(item.requestNo)} down" title="Move down">↓</button></td>
-      <td><button type="button" class="danger-text" data-ops-action="delete-item" ${canCoordinate ? "" : "disabled"}>Remove</button></td>
+      <td>${canCoordinate
+        ? `<select class="ops-inline-select" data-ops-item-field="assignedUserId">${userOptions(item.assignedUserId)}</select>`
+        : escapeHtml(item.assignee?.displayName || "Unassigned")}</td>
+      <td>${canCoordinate
+        ? `<input class="ops-inline-input" data-ops-item-field="etaText" value="${escapeAttr(item.etaText || "")}" placeholder="ETA in DXB"><input class="ops-inline-input" data-ops-item-field="deadlineText" value="${escapeAttr(item.deadlineText || "")}" placeholder="Deadline">`
+        : `<strong>${escapeHtml(item.etaText || "ETA not set")}</strong><span class="cell-subtext">${escapeHtml(item.deadlineText || "No deadline")}</span>`}</td>
+      <td>${canCoordinate
+        ? `<button type="button" data-ops-action="move-up" aria-label="Move ${escapeAttr(item.requestNo)} up" title="Move up">↑</button><button type="button" data-ops-action="move-down" aria-label="Move ${escapeAttr(item.requestNo)} down" title="Move down">↓</button>`
+        : `<strong>${index + 1}</strong>`}</td>
+      <td>${canCoordinate
+        ? `<button type="button" class="danger-text" data-ops-action="delete-item">Remove</button>`
+        : `<span class="muted-value">Read only</span>`}</td>
     </tr>
   `).join("") : `<tr><td colspan="6" class="empty">No handover or queued jobs.</td></tr>`;
 
@@ -964,8 +979,12 @@ function renderOperationsQueues() {
       <td>${requestCopyMarkup(item.requestNo)}<span class="cell-subtext">${escapeHtml(item.client || "No client")}</span></td>
       <td>${escapeHtml(item.assignee?.displayName || "Unassigned")}</td>
       <td><strong>${escapeHtml(formatDuration(item.task?.durationSeconds))}</strong><span class="cell-subtext">${escapeHtml(item.slides || item.task?.slides || "--")} slide(s)</span></td>
-      <td><select class="ops-inline-select" data-ops-item-field="reviewerId" ${canReview ? "" : "disabled"}>${reviewerOptions(item.reviewerId)}</select></td>
-      <td><div class="qc-actions"><button type="button" data-ops-action="rework" ${canReview ? "" : "disabled"}>Send rework</button><button type="button" class="approve" data-ops-action="approve" ${canReview ? "" : "disabled"}>Approve</button></div></td>
+      <td>${canReview
+        ? `<select class="ops-inline-select" data-ops-item-field="reviewerId">${reviewerOptions(item.reviewerId)}</select>`
+        : escapeHtml(item.reviewer?.displayName || "Pending reviewer")}</td>
+      <td>${canReview
+        ? `<div class="qc-actions"><button type="button" data-ops-action="rework">Send rework</button><button type="button" class="approve" data-ops-action="approve">Approve</button></div>`
+        : `<span class="muted-value">Admin review</span>`}</td>
     </tr>
   `).join("") : `<tr><td colspan="5" class="empty">No jobs waiting for quality check.</td></tr>`;
 

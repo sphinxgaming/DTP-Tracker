@@ -69,6 +69,7 @@ test("admin operations routes assignment through the designer tracker and QC", a
     body: JSON.stringify({ username: "admin", password: "TestPassword123!" })
   });
   assert.equal(loginResponse.status, 200, output.join(""));
+  const adminLogin = await loginResponse.json();
   const cookie = loginResponse.headers.getSetCookie?.()[0]?.split(";")[0]
     || loginResponse.headers.get("set-cookie").split(";")[0];
   const headers = { "content-type": "application/json", cookie };
@@ -85,6 +86,45 @@ test("admin operations routes assignment through the designer tracker and QC", a
   });
   const createUser = await createUserResponse.json();
   assert.equal(createUserResponse.status, 201, JSON.stringify(createUser));
+
+  const designerLoginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: "designer.one", password: "DesignerPassword123!" })
+  });
+  assert.equal(designerLoginResponse.status, 200, JSON.stringify(await designerLoginResponse.clone().json()));
+  const designerCookie = designerLoginResponse.headers.getSetCookie?.()[0]?.split(";")[0]
+    || designerLoginResponse.headers.get("set-cookie").split(";")[0];
+
+  const designerOperationsResponse = await fetch(`${baseUrl}/api/operations`, {
+    headers: { cookie: designerCookie }
+  });
+  const designerOperations = await designerOperationsResponse.json();
+  assert.equal(designerOperationsResponse.status, 200, JSON.stringify(designerOperations));
+  assert.equal(designerOperations.currentUser.id, createUser.user.id);
+  assert.deepEqual(designerOperations.capabilities, { review: false, coordinate: false });
+  assert.equal(designerOperations.designers.some((entry) => entry.user.id === createUser.user.id), true);
+  assert.equal(Object.hasOwn(designerOperations.designers[0], "rowCount"), false, "designers must not receive another user's tracker row count");
+
+  const designerAdminOperationsResponse = await fetch(`${baseUrl}/api/admin/operations`, {
+    headers: { cookie: designerCookie }
+  });
+  assert.equal(designerAdminOperationsResponse.status, 403, "admin Operations endpoint stays admin-only");
+
+  const protectedTrackerResponse = await fetch(`${baseUrl}/api/state`, {
+    headers: { cookie: designerCookie, "x-dtp-view-user": adminLogin.user.id }
+  });
+  const protectedTracker = await protectedTrackerResponse.json();
+  assert.equal(protectedTrackerResponse.status, 200, JSON.stringify(protectedTracker));
+  assert.equal(protectedTracker.currentUser.id, createUser.user.id);
+  assert.equal(protectedTracker.viewUser.id, createUser.user.id, "designer cannot use the admin view header to open another tracker");
+
+  const designerMutationResponse = await fetch(`${baseUrl}/api/admin/operations/items`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: designerCookie },
+    body: JSON.stringify({ requestNo: "DTP-NOT-ALLOWED" })
+  });
+  assert.equal(designerMutationResponse.status, 403, "designer Operations access is read-only");
 
   const manualResponse = await fetch(`${baseUrl}/api/tasks/manual`, {
     method: "POST",

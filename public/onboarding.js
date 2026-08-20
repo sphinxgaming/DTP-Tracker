@@ -66,10 +66,21 @@
   let currentTarget = null;
   let layoutFrame = 0;
   let lastFocused = null;
+  let activeWorkspace = "tracker";
 
   window.addEventListener("dtp:auth-user", (event) => {
     pendingAuthDetail = event.detail || { user: null, viewUser: null };
     if (ready) applyAuthDetail(pendingAuthDetail);
+  });
+
+  window.addEventListener("dtp:workspace-change", (event) => {
+    activeWorkspace = event.detail?.mode === "operations" ? "operations" : "tracker";
+    if (!ready) return;
+    els.tourBtn.hidden = !currentUser || activeWorkspace !== "tracker";
+    if (activeWorkspace !== "tracker") {
+      hideWelcome();
+      closeTour(false);
+    }
   });
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -124,14 +135,14 @@
     }
 
     if (changedUser) promptShown = false;
-    els.tourBtn.hidden = false;
+    els.tourBtn.hidden = activeWorkspace !== "tracker";
     els.tourBtn.textContent = currentUser.onboardingCompleted === false ? "Get Started" : "Tour";
 
-    if (currentUser.onboardingCompleted === false && !promptShown && !tourActive && els.welcome.hidden) {
+    if (activeWorkspace === "tracker" && currentUser.onboardingCompleted === false && !promptShown && !tourActive && els.welcome.hidden) {
       promptShown = true;
       clearTimeout(promptTimer);
       promptTimer = window.setTimeout(() => {
-        if (currentUser?.onboardingCompleted === false && !document.body.classList.contains("auth-locked")) {
+        if (activeWorkspace === "tracker" && currentUser?.onboardingCompleted === false && !document.body.classList.contains("auth-locked")) {
           showWelcome();
         }
       }, 650);

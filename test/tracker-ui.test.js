@@ -16,7 +16,7 @@ test("tracker keeps breaks simple and highlights the clicked row", () => {
   assert.doesNotMatch(html, /breakStartSelect|breakEndSelect|plannedBreakBtn|plannedBreakLabel/);
   assert.doesNotMatch(html, /servicenow-validation/);
   assert.doesNotMatch(html, /Validate ServiceNow/);
-  assert.match(html, /20260820-operations-theme-3/);
+  assert.match(html, /20260820-operations-access-6/);
 
   assert.match(app, /let focusedTaskId = ""/);
   assert.match(app, /function focusTaskRow\(id\)/);
@@ -65,6 +65,25 @@ test("admins get a dedicated centralized operations workspace", () => {
   assert.match(app, /\/api\/admin\/operations/);
   assert.match(app, /Designer workload:/);
   assert.match(app, /await openOperationsWorkspace\(\)/);
+});
+
+test("designers can view Operations without access to other designers' trackers", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const onboarding = fs.readFileSync(path.join(root, "public", "onboarding.js"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
+
+  assert.match(app, /els\.operationsBtn\.hidden = false/);
+  assert.match(app, /els\.trackerBtn\.hidden = false/);
+  assert.match(app, /const canViewTrackers = currentUser\?\.role === "admin"/);
+  assert.match(app, /canViewTrackers \? `<td><button[^`]+view-tracker/);
+  assert.match(app, /const data = await api\("\/api\/operations"\)/);
+  assert.match(html, /<th data-operations-admin-only>Tracker<\/th>/);
+  assert.match(server, /url\.pathname === "\/api\/operations"/);
+  assert.match(server, /actor\.role === "admin"[\s\S]+rowCount/);
+  assert.match(styles, /\.operations-item-form\[hidden\]/);
+  assert.match(onboarding, /activeWorkspace !== "tracker"/);
 });
 
 test("operations workspace has consistent status styling and a persistent theme switch", () => {
