@@ -1443,6 +1443,10 @@ body.auth-locked .auth-gate {
   text-align: center;
 }
 
+.team-operations-table td:not(:first-child) {
+  vertical-align: middle;
+}
+
 .team-operations-table td:not(:first-child) .request-copy,
 .team-operations-table td:not(:first-child) .presence-pill,
 .team-operations-table td:not(:first-child) button {

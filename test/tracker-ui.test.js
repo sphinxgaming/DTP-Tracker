@@ -100,5 +100,6 @@ test("operations workspace has consistent status styling and a persistent theme 
   assert.match(styles, /:root\[data-theme="dark"\]/);
   assert.match(styles, /\.presence-pill\.idle/);
   assert.match(styles, /\.presence-pill\.work/);
+  assert.match(styles, /\.team-operations-table td:not\(:first-child\) \{[\s\S]*?vertical-align: middle;/);
   assert.doesNotMatch(app, /designer-identity[^\n]+escapeHtml\(user\.username\)[^\n]+<\/span>/);
 });
