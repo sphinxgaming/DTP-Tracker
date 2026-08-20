@@ -57,6 +57,7 @@ test("admins get a dedicated centralized operations workspace", () => {
 
   assert.match(html, /id="adminWorkspace"/);
   assert.match(html, /Live DTP team dashboard/);
+  assert.match(html, /Last synced \(DXB\)/);
   assert.match(html, /Designers and shifts/);
   assert.match(html, /Handover and next jobs/);
   assert.match(html, /Quality check/);
