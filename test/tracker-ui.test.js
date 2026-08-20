@@ -101,5 +101,8 @@ test("operations workspace has consistent status styling and a persistent theme 
   assert.match(styles, /\.presence-pill\.idle/);
   assert.match(styles, /\.presence-pill\.work/);
   assert.match(styles, /\.team-operations-table td:not\(:first-child\) \{[\s\S]*?vertical-align: middle;/);
+  assert.match(app, /class="qc-status-stack"/);
+  assert.match(styles, /\.qc-status-stack \{[\s\S]*?flex-direction: column;/);
+  assert.match(styles, /#operationsQcRows td \{[\s\S]*?text-align: center;[\s\S]*?vertical-align: middle;/);
   assert.doesNotMatch(app, /designer-identity[^\n]+escapeHtml\(user\.username\)[^\n]+<\/span>/);
 });

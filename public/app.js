@@ -928,7 +928,7 @@ function renderOperationsDesigners() {
         </td>
         <td>${current ? compactJobMarkup(current) : `<span class="muted-value">No active job</span>`}</td>
         <td><strong>${escapeHtml(eta)}</strong><span class="cell-subtext">${escapeHtml(entry.activeTask?.deadlineText || "No current deadline")}</span></td>
-        <td>${qc.length ? qc.map((item) => `<span class="lane-chip ${escapeAttr(item.lane)}">${escapeHtml(item.lane === "rework" ? "Rework" : "Waiting QC")} · ${escapeHtml(item.requestNo)}</span>`).join("") : `<span class="muted-value">Clear</span>`}</td>
+        <td>${qc.length ? `<div class="qc-status-stack">${qc.map((item) => `<span class="lane-chip ${escapeAttr(item.lane)}">${escapeHtml(item.lane === "rework" ? "Rework" : "Waiting QC")} · ${escapeHtml(item.requestNo)}</span>`).join("")}</div>` : `<span class="muted-value">Clear</span>`}</td>
         <td>${next.length ? next.map((item, index) => `<div class="next-job-line"><b>${index + 1}</b>${requestCopyMarkup(item.requestNo)}<span>${escapeHtml(item.etaText || item.deadlineText || "ETA not set")}</span></div>`).join("") : `<span class="muted-value">No queued job</span>`}</td>
         <td><span class="presence-pill ${escapeAttr(entry.phase)}">${escapeHtml(availability)}</span>${entry.breakWindowLabel ? `<span class="cell-subtext">${escapeHtml(entry.breakWindowLabel)}</span>` : ""}</td>
         ${canViewTrackers ? `<td><button type="button" data-ops-action="view-tracker" data-user-id="${escapeAttr(user.id)}">View tracker</button></td>` : ""}

@@ -1447,6 +1447,17 @@ body.auth-locked .auth-gate {
   vertical-align: middle;
 }
 
+.qc-status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.qc-status-stack .lane-chip {
+  margin: 0;
+}
+
 .team-operations-table td:not(:first-child) .request-copy,
 .team-operations-table td:not(:first-child) .presence-pill,
 .team-operations-table td:not(:first-child) button {
@@ -1641,6 +1652,18 @@ body.auth-locked .auth-gate {
 
 .operations-table-wrap.compact .operations-table {
   min-width: 760px;
+}
+
+#operationsQcRows td {
+  text-align: center;
+  vertical-align: middle;
+}
+
+#operationsQcRows .request-copy,
+#operationsQcRows .qc-actions {
+  justify-content: center;
+  margin-right: auto;
+  margin-left: auto;
 }
 
 .operations-table button {
