@@ -27,6 +27,8 @@ test("tracker keeps breaks simple and highlights the clicked row", () => {
   assert.match(app, /requestCopyMarkup\(task\.requestNo\)/);
   assert.match(app, /function copyRequestNumber\(requestNo\)/);
   assert.match(styles, /\.copy-request-btn/);
+  assert.match(styles, /\.copy-request-btn \{[\s\S]*?border: 0;[\s\S]*?background: transparent;/);
+  assert.match(styles, /\.copy-request-btn span,[\s\S]*?border-radius: 2px;/);
 });
 
 test("password fields have accessible visibility toggles", () => {

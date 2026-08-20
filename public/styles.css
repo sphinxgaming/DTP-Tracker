@@ -1177,32 +1177,47 @@ body.auth-locked .auth-gate {
 
 .copy-request-btn {
   position: relative;
-  flex: 0 0 26px;
-  width: 26px;
-  min-height: 26px;
-  border-color: #b9c9d5;
+  flex: 0 0 24px;
+  width: 24px;
+  min-height: 24px;
+  border: 0;
+  border-radius: 4px;
   padding: 0;
-  background: #fff;
+  background: transparent;
+  color: #7b8993;
+}
+
+.copy-request-btn:hover:not(:disabled),
+.copy-request-btn:active:not(:disabled) {
+  border-color: transparent;
+  background: #edf1f4;
+  transform: none;
+}
+
+.copy-request-btn:focus-visible {
+  outline: 2px solid #2aa8d4;
+  outline-offset: 1px;
 }
 
 .copy-request-btn span,
 .copy-request-btn span::after {
   position: absolute;
-  width: 9px;
-  height: 10px;
-  border: 1.5px solid currentColor;
+  width: 10px;
+  height: 9px;
+  border: 1.5px solid #7b8993;
+  border-radius: 2px;
   content: "";
 }
 
 .copy-request-btn span {
-  top: 7px;
-  left: 7px;
+  top: 9px;
+  left: 6px;
 }
 
 .copy-request-btn span::after {
   top: -4px;
   left: 3px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .admin-workspace {
@@ -1680,9 +1695,13 @@ body.auth-locked .auth-gate {
 :root[data-theme="dark"] .admin-user,
 :root[data-theme="dark"] .toast,
 :root[data-theme="dark"] .auth-form .password-toggle,
-:root[data-theme="dark"] .admin-create .password-toggle,
-:root[data-theme="dark"] .copy-request-btn {
+:root[data-theme="dark"] .admin-create .password-toggle {
   background: var(--surface);
+}
+
+:root[data-theme="dark"] .copy-request-btn:hover:not(:disabled),
+:root[data-theme="dark"] .copy-request-btn:active:not(:disabled) {
+  background: #263846;
 }
 
 :root[data-theme="dark"] .eta-panel strong,
