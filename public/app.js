@@ -4,9 +4,12 @@ const els = {};
 let state = null;
 let currentUser = null;
 let activeViewUserId = "";
+let adminOperations = null;
+let workspaceMode = "tracker";
 let serverOffsetMs = 0;
 let toastTimer = null;
 let focusedTaskId = "";
+const operationsProfileSaveTimers = new Map();
 const selectedTaskIds = new Set();
 const chartColors = ["#16a9dc", "#ef7531", "#48bd63", "#ed1c24", "#7b61ff", "#00a878", "#f4b400", "#7a5c58", "#2c7be5", "#d14d9f"];
 const DAILY_OVERTIME_THRESHOLD_SECONDS = 8 * 3600;
@@ -248,6 +251,8 @@ function bindElements() {
     "toast",
     "currentUserBadge",
     "tourBtn",
+    "operationsBtn",
+    "trackerBtn",
     "adminPanelBtn",
     "logoutBtn",
     "authGate",
@@ -263,7 +268,34 @@ function bindElements() {
     "newUsername",
     "newUserPassword",
     "newUserRole",
-    "adminUsers"
+    "adminUsers",
+    "trackerWorkspace",
+    "adminWorkspace",
+    "operationsSyncedAt",
+    "operationsRefreshBtn",
+    "operationsLinkForm",
+    "operationsLinkTitle",
+    "operationsLinkUrl",
+    "operationsLinkList",
+    "operationsDesignerCount",
+    "operationsActiveCount",
+    "operationsBreakCount",
+    "operationsHandoverCount",
+    "operationsQcCount",
+    "operationsReworkCount",
+    "operationsDesignerRows",
+    "operationsItemForm",
+    "operationsRequestNo",
+    "operationsClient",
+    "operationsSlides",
+    "operationsCategory",
+    "operationsDeadline",
+    "operationsEta",
+    "operationsAssignee",
+    "operationsNotes",
+    "operationsQueueRows",
+    "operationsQcRows",
+    "operationsApprovedList"
   ]) {
     els[id] = document.getElementById(id);
   }
@@ -339,12 +371,26 @@ function bindEvents() {
   els.taskRows.addEventListener("click", handleTableClick);
   els.loginForm.addEventListener("submit", loginUser);
   els.logoutBtn.addEventListener("click", logoutUser);
+  els.operationsBtn.addEventListener("click", openOperationsWorkspace);
+  els.trackerBtn.addEventListener("click", openOwnTracker);
   els.adminPanelBtn.addEventListener("click", openAdminPanel);
   els.adminCloseBtn.addEventListener("click", closeAdminPanel);
   els.adminModal.addEventListener("click", (event) => {
     if (event.target === els.adminModal) closeAdminPanel();
   });
   els.createUserForm.addEventListener("submit", createDesignerUser);
+  els.operationsRefreshBtn.addEventListener("click", () => loadAdminOperations(false));
+  els.operationsLinkForm.addEventListener("submit", createOperationsLink);
+  els.operationsLinkList.addEventListener("click", handleOperationsClick);
+  els.operationsDesignerRows.addEventListener("input", handleOperationsProfileInput);
+  els.operationsDesignerRows.addEventListener("change", handleOperationsChange);
+  els.operationsDesignerRows.addEventListener("click", handleOperationsClick);
+  els.operationsItemForm.addEventListener("submit", createOperationsItem);
+  els.operationsQueueRows.addEventListener("change", handleOperationsChange);
+  els.operationsQueueRows.addEventListener("click", handleOperationsClick);
+  els.operationsQcRows.addEventListener("change", handleOperationsChange);
+  els.operationsQcRows.addEventListener("click", handleOperationsClick);
+  els.operationsApprovedList.addEventListener("click", handleOperationsClick);
   bindPasswordToggles();
 }
 
@@ -409,10 +455,16 @@ async function initializeAuth() {
     const status = await api("/api/auth/status");
     if (status.authenticated && status.user) {
       currentUser = status.user;
-      activeViewUserId = currentUser.role === "admin" ? (localStorage.getItem("adminViewUserId") || "") : "";
+      activeViewUserId = "";
+      localStorage.removeItem("adminViewUserId");
       hideAuthGate();
       renderAuthBar();
-      await loadState();
+      if (currentUser.role === "admin") {
+        await openOperationsWorkspace();
+      } else {
+        showWorkspace("tracker");
+        await loadState();
+      }
       return;
     }
     showAuthGate();
@@ -431,7 +483,11 @@ function showAuthGate() {
   els.authIntro.textContent = "Use your account to open your tracker rows.";
   els.logoutBtn.hidden = true;
   els.tourBtn.hidden = true;
+  els.operationsBtn.hidden = true;
+  els.trackerBtn.hidden = true;
   els.adminPanelBtn.hidden = true;
+  els.trackerWorkspace.hidden = true;
+  els.adminWorkspace.hidden = true;
   els.currentUserBadge.textContent = "Not signed in";
   announceAuthUser(null, null);
 }
@@ -450,6 +506,8 @@ function renderAuthBar() {
     els.currentUserBadge.textContent = "Not signed in";
     els.logoutBtn.hidden = true;
     els.tourBtn.hidden = true;
+    els.operationsBtn.hidden = true;
+    els.trackerBtn.hidden = true;
     els.adminPanelBtn.hidden = true;
     announceAuthUser(null, null);
     return;
@@ -460,8 +518,12 @@ function renderAuthBar() {
     ? `${base} viewing ${viewUser.displayName || viewUser.username}`
     : base;
   els.logoutBtn.hidden = false;
-  els.tourBtn.hidden = false;
+  els.tourBtn.hidden = workspaceMode !== "tracker";
+  els.operationsBtn.hidden = user.role !== "admin";
+  els.trackerBtn.hidden = user.role !== "admin";
   els.adminPanelBtn.hidden = user.role !== "admin";
+  els.operationsBtn.classList.toggle("active", workspaceMode === "operations");
+  els.trackerBtn.classList.toggle("active", workspaceMode === "tracker");
   announceAuthUser(user, viewUser);
 }
 
@@ -490,7 +552,12 @@ async function loginUser(event) {
     els.loginPassword.value = "";
     hidePassword("loginPassword");
     hideAuthGate();
-    await loadState();
+    if (currentUser.role === "admin") {
+      await openOperationsWorkspace();
+    } else {
+      showWorkspace("tracker");
+      await loadState();
+    }
     showToast("Logged in.");
   } catch (error) {
     showToast(error.message);
@@ -505,6 +572,8 @@ async function logoutUser() {
   }
   currentUser = null;
   state = null;
+  adminOperations = null;
+  workspaceMode = "tracker";
   activeViewUserId = "";
   localStorage.removeItem("adminViewUserId");
   selectedTaskIds.clear();
@@ -543,7 +612,11 @@ function setState(data, options = {}) {
 
 function refreshStateQuietly() {
   if (isEditingField()) return;
-  loadState(true, { preserveScroll: true });
+  if (workspaceMode === "operations" && currentUser?.role === "admin") {
+    loadAdminOperations(true);
+  } else {
+    loadState(true, { preserveScroll: true });
+  }
 }
 
 function isEditingField() {
@@ -686,6 +759,367 @@ function renderAll() {
   renderTable();
 }
 
+function showWorkspace(mode) {
+  workspaceMode = mode === "operations" ? "operations" : "tracker";
+  els.adminWorkspace.hidden = workspaceMode !== "operations";
+  els.trackerWorkspace.hidden = workspaceMode !== "tracker";
+  document.body.classList.toggle("operations-mode", workspaceMode === "operations");
+  renderAuthBar();
+  window.dispatchEvent(new CustomEvent("dtp:workspace-change", { detail: { mode: workspaceMode } }));
+}
+
+async function openOperationsWorkspace() {
+  if (!currentUser || currentUser.role !== "admin") return;
+  activeViewUserId = "";
+  localStorage.removeItem("adminViewUserId");
+  state = null;
+  showWorkspace("operations");
+  await loadAdminOperations(false);
+}
+
+async function openOwnTracker() {
+  if (!currentUser) return;
+  activeViewUserId = "";
+  localStorage.removeItem("adminViewUserId");
+  showWorkspace("tracker");
+  await loadState();
+}
+
+async function openDesignerTracker(userId) {
+  if (!currentUser || currentUser.role !== "admin" || !userId) return;
+  activeViewUserId = userId === currentUser.id ? "" : userId;
+  if (activeViewUserId) localStorage.setItem("adminViewUserId", activeViewUserId);
+  else localStorage.removeItem("adminViewUserId");
+  selectedTaskIds.clear();
+  showWorkspace("tracker");
+  await loadState();
+  showToast(activeViewUserId ? "Designer tracker opened." : "Your tracker opened.");
+}
+
+async function loadAdminOperations(silent = false) {
+  if (!currentUser || currentUser.role !== "admin") return;
+  try {
+    const data = await api("/api/admin/operations");
+    adminOperations = data;
+    serverOffsetMs = Date.parse(data.serverNow) - Date.now();
+    renderAdminOperations();
+  } catch (error) {
+    if (!silent) showToast(error.message);
+  }
+}
+
+function renderAdminOperations() {
+  if (!adminOperations) return;
+  renderAuthBar();
+  const metrics = adminOperations.metrics || {};
+  els.operationsSyncedAt.textContent = formatTime(adminOperations.serverNow, DUBAI_TZ);
+  els.operationsDesignerCount.textContent = String(metrics.designers || 0);
+  els.operationsActiveCount.textContent = String(metrics.active || 0);
+  els.operationsBreakCount.textContent = String(metrics.onBreak || 0);
+  els.operationsHandoverCount.textContent = String(metrics.handover || 0);
+  els.operationsQcCount.textContent = String(metrics.qc || 0);
+  els.operationsReworkCount.textContent = String(metrics.rework || 0);
+  renderOperationsLinks();
+  renderOperationsAssignees();
+  renderOperationsDesigners();
+  renderOperationsQueues();
+}
+
+function renderOperationsLinks() {
+  const canCoordinate = Boolean(adminOperations?.capabilities?.coordinate);
+  els.operationsLinkForm.hidden = !canCoordinate;
+  const links = adminOperations?.links || [];
+  els.operationsLinkList.innerHTML = links.length
+    ? links.map((link) => `
+      <span class="operations-link-item">
+        <a href="${escapeAttr(link.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.title)}</a>
+        ${canCoordinate ? `<button type="button" data-ops-action="delete-link" data-link-id="${escapeAttr(link.id)}" aria-label="Remove ${escapeAttr(link.title)}" title="Remove link">×</button>` : ""}
+      </span>
+    `).join("")
+    : `<span class="operations-empty-inline">No reference links added yet.</span>`;
+}
+
+function renderOperationsAssignees() {
+  const current = els.operationsAssignee.value;
+  const designers = (adminOperations?.users || []).filter((user) => user.canReceiveJobs !== false && user.active !== false);
+  els.operationsAssignee.replaceChildren(new Option("Unassigned handover", ""));
+  for (const user of designers) {
+    els.operationsAssignee.append(new Option(user.displayName || user.username, user.id));
+  }
+  els.operationsAssignee.value = designers.some((user) => user.id === current) ? current : "";
+  const canCoordinate = Boolean(adminOperations?.capabilities?.coordinate);
+  for (const field of els.operationsItemForm.elements) field.disabled = !canCoordinate;
+}
+
+function operationsPhaseLabel(phase) {
+  return {
+    idle: "Available",
+    review: "Reviewing",
+    work: "Working",
+    paused: "Paused",
+    expired: "Time reached",
+    break: "On break"
+  }[phase] || "Available";
+}
+
+function requestCopyMarkup(requestNo) {
+  const clean = String(requestNo || "").trim();
+  if (!clean) return `<span class="request-code muted-value">--</span>`;
+  return `<span class="request-copy"><strong class="request-code">${escapeHtml(clean)}</strong><button class="copy-request-btn" type="button" data-ops-action="copy-request" data-request-no="${escapeAttr(clean)}" aria-label="Copy ${escapeAttr(clean)}" title="Copy DTP request number"><span aria-hidden="true"></span></button></span>`;
+}
+
+function compactJobMarkup(item) {
+  if (!item) return `<span class="muted-value">--</span>`;
+  const task = item.task || item;
+  return `<div class="operations-job">${requestCopyMarkup(item.requestNo || task.requestNo)}<span>${escapeHtml(item.client || task.client || "No client")}${item.slides || task.slides ? ` · ${escapeHtml(item.slides || task.slides)} slide(s)` : ""}</span>${item.category || task.category ? `<em>${escapeHtml(item.category || task.category)}</em>` : ""}</div>`;
+}
+
+function renderOperationsDesigners() {
+  const designers = adminOperations?.designers || [];
+  const canCoordinate = Boolean(adminOperations?.capabilities?.coordinate);
+  if (!designers.length) {
+    els.operationsDesignerRows.innerHTML = `<tr><td colspan="7" class="empty">No active designer accounts.</td></tr>`;
+    return;
+  }
+  els.operationsDesignerRows.innerHTML = designers.map((entry) => {
+    const user = entry.user;
+    const qc = entry.qcItems || [];
+    const next = entry.nextItems || [];
+    const eta = entry.expectedFinishAt ? formatTime(entry.expectedFinishAt, DUBAI_TZ) : "--";
+    const current = entry.activeTask ? { ...entry.activeTask, task: entry.activeTask } : null;
+    const availability = entry.phase === "break"
+      ? `${operationsPhaseLabel(entry.phase)} · ${formatDuration(entry.breakRemainingSeconds || 0)} left`
+      : operationsPhaseLabel(entry.phase);
+    return `
+      <tr data-ops-user-id="${escapeAttr(user.id)}">
+        <td>
+          <div class="designer-identity"><strong>${escapeHtml(user.displayName || user.username)}</strong><span>${escapeHtml(user.username)}</span></div>
+          <input class="ops-inline-input" data-ops-profile="shiftLabel" value="${escapeAttr(entry.shiftLabel || "")}" placeholder="Shift in DXB" aria-label="Shift for ${escapeAttr(user.displayName || user.username)}" ${canCoordinate ? "" : "disabled"}>
+        </td>
+        <td>${current ? compactJobMarkup(current) : `<span class="muted-value">No active job</span>`}</td>
+        <td><strong>${escapeHtml(eta)}</strong><span class="cell-subtext">${escapeHtml(entry.activeTask?.deadlineText || "No current deadline")}</span></td>
+        <td>${qc.length ? qc.map((item) => `<span class="lane-chip ${escapeAttr(item.lane)}">${escapeHtml(item.lane === "rework" ? "Rework" : "Waiting QC")} · ${escapeHtml(item.requestNo)}</span>`).join("") : `<span class="muted-value">Clear</span>`}</td>
+        <td>${next.length ? next.map((item, index) => `<div class="next-job-line"><b>${index + 1}</b>${requestCopyMarkup(item.requestNo)}<span>${escapeHtml(item.etaText || item.deadlineText || "ETA not set")}</span></div>`).join("") : `<span class="muted-value">No queued job</span>`}</td>
+        <td><span class="presence-pill ${escapeAttr(entry.phase)}">${escapeHtml(availability)}</span>${entry.breakWindowLabel ? `<span class="cell-subtext">${escapeHtml(entry.breakWindowLabel)}</span>` : ""}</td>
+        <td><button type="button" data-ops-action="view-tracker" data-user-id="${escapeAttr(user.id)}">View tracker</button></td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function userOptions(selectedId = "", includeUnassigned = true) {
+  const users = (adminOperations?.users || []).filter((user) => user.canReceiveJobs !== false && user.active !== false);
+  return `${includeUnassigned ? `<option value="">Unassigned</option>` : ""}${users.map((user) => `<option value="${escapeAttr(user.id)}" ${user.id === selectedId ? "selected" : ""}>${escapeHtml(user.displayName || user.username)}</option>`).join("")}`;
+}
+
+function reviewerOptions(selectedId = "") {
+  const reviewers = adminOperations?.reviewers || [];
+  return `<option value="">Auto / current reviewer</option>${reviewers.map((user) => `<option value="${escapeAttr(user.id)}" ${user.id === selectedId ? "selected" : ""}>${escapeHtml(user.displayName || user.username)}</option>`).join("")}`;
+}
+
+function renderOperationsQueues() {
+  const items = adminOperations?.workItems || [];
+  const canCoordinate = Boolean(adminOperations?.capabilities?.coordinate);
+  const canReview = Boolean(adminOperations?.capabilities?.review);
+  const queue = items.filter((item) => new Set(["handover", "next", "rework"]).has(item.lane));
+  const qc = items.filter((item) => item.lane === "qc");
+  const approved = items.filter((item) => item.lane === "approved").sort((a, b) => Date.parse(b.completedAt || b.updatedAt) - Date.parse(a.completedAt || a.updatedAt));
+
+  els.operationsQueueRows.innerHTML = queue.length ? queue.map((item) => `
+    <tr data-ops-item-id="${escapeAttr(item.id)}">
+      <td>${requestCopyMarkup(item.requestNo)}<span class="lane-chip ${escapeAttr(item.lane)}">${escapeHtml(item.lane === "handover" ? "Handover" : item.lane === "rework" ? "Rework" : "Next")}</span></td>
+      <td><strong>${escapeHtml(item.client || "No client")}</strong><span class="cell-subtext">${escapeHtml(item.slides || "--")} slide(s) · ${escapeHtml(item.category || "Uncategorized")}</span></td>
+      <td><select class="ops-inline-select" data-ops-item-field="assignedUserId" ${canCoordinate ? "" : "disabled"}>${userOptions(item.assignedUserId)}</select></td>
+      <td><input class="ops-inline-input" data-ops-item-field="etaText" value="${escapeAttr(item.etaText || "")}" placeholder="ETA in DXB" ${canCoordinate ? "" : "disabled"}><input class="ops-inline-input" data-ops-item-field="deadlineText" value="${escapeAttr(item.deadlineText || "")}" placeholder="Deadline" ${canCoordinate ? "" : "disabled"}></td>
+      <td><button type="button" data-ops-action="move-up" ${canCoordinate ? "" : "disabled"} aria-label="Move ${escapeAttr(item.requestNo)} up" title="Move up">↑</button><button type="button" data-ops-action="move-down" ${canCoordinate ? "" : "disabled"} aria-label="Move ${escapeAttr(item.requestNo)} down" title="Move down">↓</button></td>
+      <td><button type="button" class="danger-text" data-ops-action="delete-item" ${canCoordinate ? "" : "disabled"}>Remove</button></td>
+    </tr>
+  `).join("") : `<tr><td colspan="6" class="empty">No handover or queued jobs.</td></tr>`;
+
+  els.operationsQcRows.innerHTML = qc.length ? qc.map((item) => `
+    <tr data-ops-item-id="${escapeAttr(item.id)}">
+      <td>${requestCopyMarkup(item.requestNo)}<span class="cell-subtext">${escapeHtml(item.client || "No client")}</span></td>
+      <td>${escapeHtml(item.assignee?.displayName || "Unassigned")}</td>
+      <td><strong>${escapeHtml(formatDuration(item.task?.durationSeconds))}</strong><span class="cell-subtext">${escapeHtml(item.slides || item.task?.slides || "--")} slide(s)</span></td>
+      <td><select class="ops-inline-select" data-ops-item-field="reviewerId" ${canReview ? "" : "disabled"}>${reviewerOptions(item.reviewerId)}</select></td>
+      <td><div class="qc-actions"><button type="button" data-ops-action="rework" ${canReview ? "" : "disabled"}>Send rework</button><button type="button" class="approve" data-ops-action="approve" ${canReview ? "" : "disabled"}>Approve</button></div></td>
+    </tr>
+  `).join("") : `<tr><td colspan="5" class="empty">No jobs waiting for quality check.</td></tr>`;
+
+  els.operationsApprovedList.innerHTML = approved.length
+    ? approved.slice(0, 30).map((item) => `<span class="approved-item">${requestCopyMarkup(item.requestNo)}<span>${escapeHtml(item.assignee?.displayName || "Unassigned")}</span><small>${escapeHtml(item.reviewer?.displayName || "Approved")} · ${escapeHtml(formatDateTime(item.completedAt || item.updatedAt, DUBAI_TZ))}</small></span>`).join("")
+    : `<span class="operations-empty-inline">Approved jobs will appear here.</span>`;
+}
+
+async function createOperationsLink(event) {
+  event.preventDefault();
+  try {
+    const data = await api("/api/admin/operations/links", {
+      method: "POST",
+      body: JSON.stringify({ title: els.operationsLinkTitle.value, href: els.operationsLinkUrl.value })
+    });
+    els.operationsLinkTitle.value = "";
+    els.operationsLinkUrl.value = "";
+    adminOperations = data;
+    renderAdminOperations();
+    showToast("Reference link added.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function createOperationsItem(event) {
+  event.preventDefault();
+  try {
+    const data = await api("/api/admin/operations/items", {
+      method: "POST",
+      body: JSON.stringify({
+        requestNo: els.operationsRequestNo.value,
+        client: els.operationsClient.value,
+        slides: els.operationsSlides.value,
+        category: els.operationsCategory.value,
+        deadlineText: els.operationsDeadline.value,
+        etaText: els.operationsEta.value,
+        assignedUserId: els.operationsAssignee.value,
+        notes: els.operationsNotes.value
+      })
+    });
+    els.operationsItemForm.reset();
+    adminOperations = data;
+    renderAdminOperations();
+    showToast("Request added to Operations.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function handleOperationsChange(event) {
+  const profileField = event.target.dataset.opsProfile;
+  const profileRow = event.target.closest("tr[data-ops-user-id]");
+  if (profileField && profileRow) {
+    try {
+      const shiftInput = profileRow.querySelector("[data-ops-profile='shiftLabel']");
+      const data = await api(`/api/admin/operations/profiles/${encodeURIComponent(profileRow.dataset.opsUserId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ shiftLabel: shiftInput?.value || "" })
+      });
+      adminOperations = data;
+      renderAdminOperations();
+      showToast("Designer shift updated.");
+    } catch (error) {
+      showToast(error.message);
+    }
+    return;
+  }
+
+  const field = event.target.dataset.opsItemField;
+  const itemRow = event.target.closest("tr[data-ops-item-id]");
+  if (!field || !itemRow) return;
+  try {
+    const data = await api(`/api/admin/operations/items/${encodeURIComponent(itemRow.dataset.opsItemId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ [field]: event.target.value })
+    });
+    adminOperations = data;
+    renderAdminOperations();
+    showToast("Operations item updated.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function handleOperationsProfileInput(event) {
+  if (event.target.dataset.opsProfile !== "shiftLabel") return;
+  const profileRow = event.target.closest("tr[data-ops-user-id]");
+  if (!profileRow) return;
+  const userId = profileRow.dataset.opsUserId;
+  clearTimeout(operationsProfileSaveTimers.get(userId));
+  operationsProfileSaveTimers.set(userId, setTimeout(async () => {
+    operationsProfileSaveTimers.delete(userId);
+    try {
+      const data = await api(`/api/admin/operations/profiles/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ shiftLabel: event.target.value || "" })
+      });
+      adminOperations = data;
+      renderAdminOperations();
+      showToast("Designer shift updated.");
+    } catch (error) {
+      showToast(error.message);
+    }
+  }, 600));
+}
+
+async function handleOperationsClick(event) {
+  const button = event.target.closest("button[data-ops-action]");
+  if (!button) return;
+  const action = button.dataset.opsAction;
+  if (action === "copy-request") {
+    await copyRequestNumber(button.dataset.requestNo || "");
+    return;
+  }
+  if (action === "view-tracker") {
+    await openDesignerTracker(button.dataset.userId);
+    return;
+  }
+  if (action === "delete-link") {
+    if (!confirm("Remove this reference link?")) return;
+    try {
+      adminOperations = await api(`/api/admin/operations/links/${encodeURIComponent(button.dataset.linkId)}`, { method: "DELETE" });
+      renderAdminOperations();
+      showToast("Reference link removed.");
+    } catch (error) {
+      showToast(error.message);
+    }
+    return;
+  }
+
+  const row = button.closest("tr[data-ops-item-id]");
+  const itemId = row?.dataset.opsItemId;
+  if (!itemId) return;
+  try {
+    if (action === "delete-item") {
+      if (!confirm("Remove this request from the operations queue? An already-started tracker row will be preserved.")) return;
+      adminOperations = await api(`/api/admin/operations/items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+      showToast("Queue item removed.");
+    } else {
+      const reviewer = row.querySelector("[data-ops-item-field='reviewerId']")?.value || "";
+      const decision = action === "approve" ? "approve this QC job" : action === "rework" ? "send this job back for rework" : "reorder this job";
+      if (new Set(["approve", "rework"]).has(action) && !confirm(`Are you sure you want to ${decision}?`)) return;
+      adminOperations = await api(`/api/admin/operations/items/${encodeURIComponent(itemId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action, reviewerId: reviewer })
+      });
+      showToast(action === "approve" ? "QC approved." : action === "rework" ? "Rework row created for the designer." : "Queue reordered.");
+    }
+    renderAdminOperations();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function copyRequestNumber(requestNo) {
+  const value = String(requestNo || "").trim();
+  if (!value) return;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      const input = document.createElement("textarea");
+      input.value = value;
+      input.style.position = "fixed";
+      input.style.left = "-9999px";
+      document.body.append(input);
+      input.select();
+      document.execCommand("copy");
+      input.remove();
+    }
+    showToast(`${value} copied.`);
+  } catch {
+    showToast("Could not copy the request number.");
+  }
+}
+
 async function openAdminPanel() {
   if (!currentUser || currentUser.role !== "admin") return;
   els.adminModal.hidden = false;
@@ -712,13 +1146,15 @@ function renderAdminUsers(users) {
     return;
   }
   els.adminUsers.innerHTML = users.map((user) => `
-    <article class="admin-user ${user.active ? "" : "inactive"} ${activeViewUserId === user.id || (!activeViewUserId && currentUser?.id === user.id) ? "viewing" : ""}" data-user-id="${escapeAttr(user.id)}" data-user-role="${escapeAttr(user.role)}" data-user-name="${escapeAttr(user.displayName || user.username)}" data-row-count="${Number(user.rowCount || 0)}">
+    <article class="admin-user ${user.active ? "" : "inactive"} ${activeViewUserId === user.id || (!activeViewUserId && currentUser?.id === user.id) ? "viewing" : ""}" data-user-id="${escapeAttr(user.id)}" data-user-role="${escapeAttr(user.role)}" data-can-receive-jobs="${user.canReceiveJobs !== false ? "true" : "false"}" data-user-name="${escapeAttr(user.displayName || user.username)}" data-row-count="${Number(user.rowCount || 0)}">
       <div>
         <strong>${escapeHtml(user.displayName || user.username)}</strong>
-        <span>${escapeHtml(user.username)} | ${escapeHtml(user.role)} | ${Number(user.rowCount || 0)} row(s)</span>
+        <span>${escapeHtml(user.username)} | ${escapeHtml(user.role)}${user.role === "admin" ? ` (${escapeHtml(adminScopeLabel(user.adminScope))})` : ""} | ${user.canReceiveJobs !== false ? "designer workload" : "admin only"} | ${Number(user.rowCount || 0)} row(s)</span>
       </div>
       <div class="admin-user-actions">
         <button type="button" data-admin-action="view-tracker">${activeViewUserId === user.id || (!activeViewUserId && currentUser?.id === user.id) ? "Viewing" : "View tracker"}</button>
+        ${user.role === "admin" ? `<select data-admin-scope aria-label="Admin permissions for ${escapeAttr(user.displayName || user.username)}"><option value="both" ${user.adminScope === "both" ? "selected" : ""}>Reviewer + coordinator</option><option value="reviewer" ${user.adminScope === "reviewer" ? "selected" : ""}>QC reviewer</option><option value="coordinator" ${user.adminScope === "coordinator" ? "selected" : ""}>Coordinator</option><option value="view" ${user.adminScope === "view" ? "selected" : ""}>View only</option></select>` : ""}
+        ${user.role === "admin" ? `<button type="button" data-admin-action="toggle-workload">Designer workload: ${user.canReceiveJobs !== false ? "On" : "Off"}</button>` : ""}
         <button type="button" data-admin-action="toggle-role">${user.role === "admin" ? "Make designer" : "Make admin"}</button>
         <button type="button" data-admin-action="toggle-active">${user.active ? "Deactivate" : "Activate"}</button>
         <button type="button" data-admin-action="reset-password">Reset password</button>
@@ -729,6 +1165,34 @@ function renderAdminUsers(users) {
   els.adminUsers.querySelectorAll("button[data-admin-action]").forEach((button) => {
     button.addEventListener("click", handleAdminUserAction);
   });
+  els.adminUsers.querySelectorAll("select[data-admin-scope]").forEach((select) => {
+    select.addEventListener("change", handleAdminScopeChange);
+  });
+}
+
+function adminScopeLabel(scope) {
+  return {
+    both: "reviewer + coordinator",
+    reviewer: "QC reviewer",
+    coordinator: "coordinator",
+    view: "view only"
+  }[scope] || "reviewer + coordinator";
+}
+
+async function handleAdminScopeChange(event) {
+  const card = event.target.closest(".admin-user");
+  if (!card?.dataset.userId) return;
+  try {
+    await api(`/api/admin/users/${encodeURIComponent(card.dataset.userId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ adminScope: event.target.value })
+    });
+    await loadAdminUsers();
+    if (workspaceMode === "operations") await loadAdminOperations(true);
+    showToast("Admin permissions updated.");
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 async function createDesignerUser(event) {
@@ -764,16 +1228,8 @@ async function handleAdminUserAction(event) {
 
   try {
     if (action === "view-tracker") {
-      activeViewUserId = userId === currentUser?.id ? "" : userId;
-      if (activeViewUserId) {
-        localStorage.setItem("adminViewUserId", activeViewUserId);
-      } else {
-        localStorage.removeItem("adminViewUserId");
-      }
-      selectedTaskIds.clear();
       closeAdminPanel();
-      await loadState();
-      showToast(activeViewUserId ? "Designer tracker opened." : "Your tracker opened.");
+      await openDesignerTracker(userId);
       return;
     }
 
@@ -788,6 +1244,18 @@ async function handleAdminUserAction(event) {
       await loadAdminUsers();
       if (state?.viewUser?.id === userId) await loadState(true, { preserveScroll: true });
       showToast(nextRole === "admin" ? "User promoted to admin." : "User changed to designer.");
+      return;
+    }
+
+    if (action === "toggle-workload") {
+      const receivesJobs = card.dataset.canReceiveJobs === "true";
+      await api(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ canReceiveJobs: !receivesJobs })
+      });
+      await loadAdminUsers();
+      if (workspaceMode === "operations") await loadAdminOperations(true);
+      showToast(receivesJobs ? "Designer workload turned off." : "Designer workload turned on.");
       return;
     }
 
@@ -869,14 +1337,14 @@ function allCategories() {
 }
 
 function tick() {
-  if (!state) return;
   const now = new Date(nowMs());
+  els.headerDubaiTime.textContent = formatDateTime(now, DUBAI_TZ);
+  if (!state) return;
   const workRemaining = getWorkRemaining();
   const breakRemaining = getBreakRemaining();
   const reviewElapsed = getReviewElapsed();
   const phase = getPhase(workRemaining);
 
-  els.headerDubaiTime.textContent = formatDateTime(now, DUBAI_TZ);
   els.viewerClock.textContent = formatDateTime(now, els.timezoneSelect.value);
   els.workTimer.textContent = formatHMS(workRemaining);
   els.breakTimer.textContent = formatHMS(breakRemaining);
@@ -960,7 +1428,7 @@ function renderTable() {
     tr.dataset.id = task.id;
     tr.innerHTML = `
       <td>${dateWorkedInput(task)}</td>
-      <td><span class="readonly-cell">${escapeHtml(task.requestNo || "")}</span></td>
+      <td>${requestCopyMarkup(task.requestNo)}</td>
       <td>${durationInput(task)}</td>
       <td>${escapeHtml(formatMinutes(task.durationSeconds))}</td>
       <td>${editableInput(task, "slides", task.slides, "Slides")}</td>
@@ -1035,6 +1503,12 @@ async function handleTableChange(event) {
 async function handleTableClick(event) {
   const clickedRow = event.target.closest("tr[data-id]");
   if (clickedRow?.dataset.id) focusTaskRow(clickedRow.dataset.id);
+
+  const copyButton = event.target.closest("button[data-ops-action='copy-request']");
+  if (copyButton) {
+    await copyRequestNumber(copyButton.dataset.requestNo || "");
+    return;
+  }
 
   const continueButton = event.target.closest("button[data-action='continue']");
   if (continueButton) {

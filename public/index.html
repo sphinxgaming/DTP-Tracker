@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>DTP Time Tracker</title>
-    <link rel="stylesheet" href="/styles.css?v=20260813-password-eye-1">
+    <link rel="stylesheet" href="/styles.css?v=20260820-operations-2">
     <link rel="stylesheet" href="/onboarding.css?v=20260716-onboarding-tour">
   </head>
   <body class="auth-locked">
@@ -24,12 +24,14 @@
       <div class="auth-bar">
         <span id="currentUserBadge">Not signed in</span>
         <button id="tourBtn" type="button" hidden>Get Started</button>
-        <button id="adminPanelBtn" type="button" hidden>Admin</button>
+        <button id="operationsBtn" type="button" hidden>Operations</button>
+        <button id="trackerBtn" type="button" hidden>Tracker</button>
+        <button id="adminPanelBtn" type="button" hidden>Accounts</button>
         <button id="logoutBtn" type="button" hidden>Logout</button>
       </div>
     </header>
 
-    <main class="shell">
+    <main id="trackerWorkspace" class="shell">
       <div class="workspace-layout">
         <div class="workbench">
           <section class="tracker-grid" aria-label="Tracker controls">
@@ -197,6 +199,142 @@
       </div>
     </main>
 
+    <main id="adminWorkspace" class="admin-workspace" hidden>
+      <section class="operations-heading">
+        <div>
+          <p class="eyebrow">Central operations</p>
+          <h2>Live DTP team dashboard</h2>
+          <p>Assignments, production status, QC, rework, and handovers in one view.</p>
+        </div>
+        <div class="operations-sync">
+          <span>Last synced</span>
+          <strong id="operationsSyncedAt">--</strong>
+          <button id="operationsRefreshBtn" type="button" title="Refresh operations dashboard" aria-label="Refresh operations dashboard">Refresh</button>
+        </div>
+      </section>
+
+      <section class="operations-links" aria-labelledby="operationsLinksTitle">
+        <div class="operations-section-head">
+          <div>
+            <span>Reference</span>
+            <h3 id="operationsLinksTitle">Important links</h3>
+          </div>
+          <form id="operationsLinkForm" class="operations-link-form">
+            <input id="operationsLinkTitle" type="text" placeholder="Link name" aria-label="Important link name">
+            <input id="operationsLinkUrl" type="url" placeholder="https://..." aria-label="Important link URL">
+            <button type="submit">Add link</button>
+          </form>
+        </div>
+        <div id="operationsLinkList" class="operations-link-list"></div>
+      </section>
+
+      <section class="operations-metrics" aria-label="Team operations summary">
+        <div><span>Designers</span><strong id="operationsDesignerCount">0</strong></div>
+        <div><span>Active now</span><strong id="operationsActiveCount">0</strong></div>
+        <div><span>On break</span><strong id="operationsBreakCount">0</strong></div>
+        <div><span>Handover</span><strong id="operationsHandoverCount">0</strong></div>
+        <div><span>Waiting QC</span><strong id="operationsQcCount">0</strong></div>
+        <div><span>Rework</span><strong id="operationsReworkCount">0</strong></div>
+      </section>
+
+      <section class="operations-band" aria-labelledby="teamBoardTitle">
+        <div class="operations-section-head">
+          <div>
+            <span>Live workload</span>
+            <h3 id="teamBoardTitle">Designers and shifts</h3>
+          </div>
+        </div>
+        <div class="operations-table-wrap">
+          <table class="operations-table team-operations-table">
+            <thead>
+              <tr>
+                <th>Designer / shift</th>
+                <th>Current job</th>
+                <th>ETA in DXB / deadline</th>
+                <th>QC status</th>
+                <th>Next jobs</th>
+                <th>Break / availability</th>
+                <th>Tracker</th>
+              </tr>
+            </thead>
+            <tbody id="operationsDesignerRows">
+              <tr><td colspan="7" class="empty">Loading team operations...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="operations-two-column">
+        <section class="operations-band" aria-labelledby="handoverTitle">
+          <div class="operations-section-head">
+            <div>
+              <span>Coordinator queue</span>
+              <h3 id="handoverTitle">Handover and next jobs</h3>
+            </div>
+          </div>
+          <form id="operationsItemForm" class="operations-item-form">
+            <input id="operationsRequestNo" type="text" placeholder="DTP request #" aria-label="DTP request number" required>
+            <input id="operationsClient" type="text" placeholder="Client" aria-label="Relevant client">
+            <input id="operationsSlides" type="text" inputmode="numeric" placeholder="Slides" aria-label="Number of slides">
+            <input id="operationsCategory" type="text" list="categoryOptions" placeholder="Category" aria-label="Category of work">
+            <input id="operationsDeadline" type="text" placeholder="Deadline" aria-label="Deadline">
+            <input id="operationsEta" type="text" placeholder="ETA in DXB" aria-label="ETA in DXB">
+            <select id="operationsAssignee" aria-label="Assign designer"></select>
+            <input id="operationsNotes" type="text" placeholder="Notes / handover details" aria-label="Handover notes">
+            <button type="submit">Add request</button>
+          </form>
+          <div class="operations-table-wrap compact">
+            <table class="operations-table">
+              <thead>
+                <tr>
+                  <th>Request</th>
+                  <th>Details</th>
+                  <th>Assignee</th>
+                  <th>ETA / deadline</th>
+                  <th>Queue</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="operationsQueueRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="operations-band" aria-labelledby="qcQueueTitle">
+          <div class="operations-section-head">
+            <div>
+              <span>Review queue</span>
+              <h3 id="qcQueueTitle">Quality check</h3>
+            </div>
+          </div>
+          <div class="operations-table-wrap compact">
+            <table class="operations-table">
+              <thead>
+                <tr>
+                  <th>Request</th>
+                  <th>Designer</th>
+                  <th>Hours / slides</th>
+                  <th>Reviewer</th>
+                  <th>Decision</th>
+                </tr>
+              </thead>
+              <tbody id="operationsQcRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="operations-band operations-approved" aria-labelledby="approvedTitle">
+        <div class="operations-section-head">
+          <div>
+            <span>Completed review</span>
+            <h3 id="approvedTitle">QC approved</h3>
+          </div>
+        </div>
+        <div id="operationsApprovedList" class="operations-approved-list"></div>
+      </section>
+    </main>
+
     <section id="authGate" class="auth-gate" hidden>
       <div class="auth-card">
         <p class="eyebrow">DTP Tracker access</p>
@@ -307,7 +445,7 @@
 
     <datalist id="categoryOptions"></datalist>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260813-password-eye-1" defer></script>
-    <script src="/onboarding.js?v=20260813-password-eye-1" defer></script>
+    <script src="/app.js?v=20260820-operations-2" defer></script>
+    <script src="/onboarding.js?v=20260820-operations-2" defer></script>
   </body>
 </html>

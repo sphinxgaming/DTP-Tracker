@@ -98,6 +98,11 @@ const initialDb = {
   sessions: [],
   userSettings: {},
   userTimers: {},
+  operations: {
+    links: [],
+    profiles: {},
+    workItems: []
+  },
   settings: {
     workBudgetSeconds: 3 * 3600,
     breakBudgetSeconds: 3600
@@ -180,6 +185,7 @@ function normalizeDb(db) {
   clean.sessions = Array.isArray(db.sessions) ? db.sessions.filter((session) => session && session.tokenHash && session.userId) : [];
   clean.userSettings = db.userSettings && typeof db.userSettings === "object" ? db.userSettings : {};
   clean.userTimers = db.userTimers && typeof db.userTimers === "object" ? db.userTimers : {};
+  clean.operations = normalizeOperations(db.operations);
   clean.settings = {
     ...initialDb.settings,
     ...(db.settings || {})
@@ -196,9 +202,70 @@ function normalizeDb(db) {
       if (!task.ownerId) task.ownerId = fallbackOwner.id;
     }
   }
+  const originalUsers = new Map((Array.isArray(db.users) ? db.users : []).map((user) => [user?.id, user]));
+  for (const user of clean.users) {
+    const original = originalUsers.get(user.id);
+    if (original && !Object.prototype.hasOwnProperty.call(original, "canReceiveJobs") && clean.tasks.some((task) => task.ownerId === user.id)) {
+      user.canReceiveJobs = true;
+    }
+  }
   for (const user of clean.users) ensureUserRuntime(clean, user.id);
   clean.audit = Array.isArray(db.audit) ? db.audit.slice(-200) : [];
   return clean;
+}
+
+function normalizeOperations(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const links = Array.isArray(source.links)
+    ? source.links.map(normalizeOperationsLink).filter(Boolean)
+    : [];
+  const profiles = source.profiles && typeof source.profiles === "object" ? source.profiles : {};
+  const workItems = Array.isArray(source.workItems)
+    ? source.workItems.map(normalizeOperationsItem).filter(Boolean)
+    : [];
+  return { links, profiles, workItems };
+}
+
+function normalizeOperationsLink(link) {
+  if (!link || !link.id) return null;
+  const href = safeHttpUrl(link.href || link.url);
+  if (!href) return null;
+  return {
+    id: safeString(link.id, 120),
+    title: safeString(link.title || "Reference link", 120),
+    href,
+    createdBy: safeString(link.createdBy, 120),
+    createdAt: safeString(link.createdAt, 80) || nowIso()
+  };
+}
+
+function normalizeOperationsItem(item) {
+  if (!item || !item.id) return null;
+  const lanes = new Set(["handover", "next", "current", "qc", "rework", "approved"]);
+  const lane = lanes.has(item.lane) ? item.lane : "handover";
+  return {
+    id: safeString(item.id, 120),
+    taskId: safeString(item.taskId, 120) || null,
+    historyTaskIds: Array.isArray(item.historyTaskIds)
+      ? item.historyTaskIds.map((id) => safeString(id, 120)).filter(Boolean).slice(-20)
+      : [],
+    requestNo: cleanJobCode(item.requestNo),
+    client: safeString(item.client, 120),
+    slides: safeString(item.slides, 20),
+    category: safeString(item.category, 120),
+    deadlineText: cleanDeadlineText(item.deadlineText),
+    etaText: safeString(item.etaText, 120),
+    notes: safeString(item.notes, 800),
+    assignedUserId: safeString(item.assignedUserId, 120) || null,
+    reviewerId: safeString(item.reviewerId, 120) || null,
+    lane,
+    sequence: Number.isFinite(Number(item.sequence)) ? Number(item.sequence) : 0,
+    reworkCount: Math.max(0, Number(item.reworkCount) || 0),
+    createdBy: safeString(item.createdBy, 120),
+    createdAt: safeString(item.createdAt, 80) || nowIso(),
+    updatedAt: safeString(item.updatedAt, 80) || nowIso(),
+    completedAt: safeString(item.completedAt, 80) || null
+  };
 }
 
 function normalizeUser(user) {
@@ -210,6 +277,10 @@ function normalizeUser(user) {
     displayName: safeString(user.displayName || user.username, 120),
     serviceNowProductionName: safeString(user.serviceNowProductionName || user.displayName || user.username, 120),
     role,
+    adminScope: role === "admin" ? normalizeAdminScope(user.adminScope) : "",
+    canReceiveJobs: Object.prototype.hasOwnProperty.call(user, "canReceiveJobs")
+      ? Boolean(user.canReceiveJobs)
+      : role === "designer",
     active: user.active !== false,
     passwordHash: safeString(user.passwordHash, 300),
     passwordSalt: safeString(user.passwordSalt, 120),
@@ -316,6 +387,246 @@ function attachOwner(db, task) {
   return task;
 }
 
+function normalizeAdminScope(value) {
+  const scope = safeString(value, 40).toLowerCase();
+  return new Set(["both", "reviewer", "coordinator", "view"]).has(scope) ? scope : "both";
+}
+
+function adminCan(user, capability) {
+  if (!user || user.role !== "admin") return false;
+  const scope = normalizeAdminScope(user.adminScope);
+  if (scope === "both") return true;
+  if (capability === "review") return scope === "reviewer";
+  if (capability === "coordinate") return scope === "coordinator";
+  return true;
+}
+
+function safeHttpUrl(value) {
+  const raw = safeString(value, 1000);
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw);
+    return new Set(["http:", "https:"]).has(parsed.protocol) ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function operationsStore(db) {
+  const root = rootDbOf(db);
+  if (!root.operations || typeof root.operations !== "object") {
+    root.operations = normalizeOperations(null);
+  }
+  return root.operations;
+}
+
+function operationItemByTask(db, taskId) {
+  if (!taskId) return null;
+  return operationsStore(db).workItems.find((item) => item.taskId === taskId) || null;
+}
+
+function operationItemById(db, itemId) {
+  return operationsStore(db).workItems.find((item) => item.id === itemId) || null;
+}
+
+function nextOperationSequence(db, lane = "next", assignedUserId = null) {
+  const values = operationsStore(db).workItems
+    .filter((item) => item.lane === lane && (!assignedUserId || item.assignedUserId === assignedUserId))
+    .map((item) => Number(item.sequence) || 0);
+  return (values.length ? Math.max(...values) : 0) + 1;
+}
+
+function syncOperationItemFromTask(item, task) {
+  if (!item || !task) return;
+  item.taskId = task.id;
+  item.requestNo = cleanJobCode(task.requestNo || item.requestNo);
+  item.client = safeString(task.client || item.client, 120);
+  item.slides = safeString(task.slides || item.slides, 20);
+  item.category = safeString(task.category || item.category, 120);
+  item.deadlineText = cleanDeadlineText(task.deadlineText || item.deadlineText);
+  item.assignedUserId = task.ownerId || item.assignedUserId || null;
+  item.updatedAt = nowIso();
+  task.operationsItemId = item.id;
+}
+
+function upsertTaskOperation(db, task, lane) {
+  if (!task || task.imported || !task.ownerId) return null;
+  const store = operationsStore(db);
+  let item = task.operationsItemId ? operationItemById(db, task.operationsItemId) : null;
+  if (!item) item = operationItemByTask(db, task.id);
+  const now = nowIso();
+  if (!item) {
+    item = normalizeOperationsItem({
+      id: randomUUID(),
+      taskId: task.id,
+      requestNo: task.requestNo,
+      client: task.client,
+      slides: task.slides,
+      category: task.category,
+      deadlineText: task.deadlineText,
+      etaText: "",
+      notes: "",
+      assignedUserId: task.ownerId,
+      lane,
+      sequence: nextOperationSequence(db, lane, task.ownerId),
+      createdBy: task.ownerId,
+      createdAt: now,
+      updatedAt: now
+    });
+    store.workItems.push(item);
+  }
+  syncOperationItemFromTask(item, task);
+  item.lane = lane === "next" && item.reworkCount > 0 ? "rework" : lane;
+  if (item.lane !== "approved") {
+    item.completedAt = null;
+  }
+  return item;
+}
+
+function removeTaskOperation(db, taskId) {
+  const store = operationsStore(db);
+  store.workItems = store.workItems.filter((item) => item.taskId !== taskId);
+  for (const item of store.workItems) {
+    item.historyTaskIds = (item.historyTaskIds || []).filter((id) => id !== taskId);
+  }
+}
+
+function taskIsActiveAnywhere(db, taskId) {
+  const root = rootDbOf(db);
+  return Object.values(root.userTimers || {}).some((timer) => timer?.activeTaskId === taskId);
+}
+
+function createTaskForOperation(db, item, assignedUserId, options = {}) {
+  const root = rootDbOf(db);
+  const user = root.users.find((candidate) => candidate.id === assignedUserId && candidate.active !== false && candidate.canReceiveJobs !== false);
+  if (!user) throw new Error("Select an active designer account.");
+  const now = nowIso();
+  ensureUserRuntime(root, user.id);
+  const task = {
+    id: randomUUID(),
+    ownerId: user.id,
+    dateWorked: dubaiDateKey(new Date()),
+    requestNo: cleanJobCode(item.requestNo),
+    slides: safeString(item.slides, 20),
+    category: safeString(item.category, 120),
+    client: safeString(item.client, 120),
+    deadlineText: cleanDeadlineText(item.deadlineText),
+    startAt: null,
+    finishedAt: null,
+    breakSeconds: 0,
+    pauseSeconds: 0,
+    pauseStartedAt: null,
+    workBudgetSeconds: root.userSettings[user.id]?.workBudgetSeconds || initialDb.settings.workBudgetSeconds,
+    workRemainingSeconds: root.userSettings[user.id]?.workBudgetSeconds || initialDb.settings.workBudgetSeconds,
+    imported: false,
+    operationsManaged: true,
+    operationsItemId: item.id,
+    notes: safeString(options.notes || (item.reworkCount ? "QC rework" : "Assigned from Operations"), 300),
+    rawJob: [item.requestNo, item.client, item.slides ? `${item.slides} Slides` : "", item.deadlineText].filter(Boolean).join(" / "),
+    createdAt: now,
+    updatedAt: now
+  };
+  root.tasks.push(task);
+  item.taskId = task.id;
+  item.assignedUserId = user.id;
+  item.updatedAt = now;
+  ensureCategory(root, task.category);
+  return task;
+}
+
+function operationExpectedFinish(timer) {
+  if (!timer?.expectedFinishAt) return null;
+  if (timer.phase !== "break" || !timer.activeTaskId || !timer.breakStartedAt) return timer.expectedFinishAt;
+  const remaining = Math.max(0, Number(timer.workRemainingBaseSeconds) || 0);
+  const plannedEnd = Date.parse(timer.plannedBreakEndAt || "");
+  const base = Number.isFinite(plannedEnd) ? Math.max(Date.now(), plannedEnd) : Date.now();
+  return new Date(base + remaining * 1000).toISOString();
+}
+
+function operationTaskSummary(task) {
+  if (!task) return null;
+  return {
+    id: task.id,
+    requestNo: task.requestNo || "",
+    client: task.client || "",
+    slides: task.slides || "",
+    category: task.category || "",
+    deadlineText: task.deadlineText || "",
+    startAt: task.startAt || null,
+    finishedAt: task.finishedAt || null,
+    durationSeconds: taskDurationSeconds(task)
+  };
+}
+
+function operationItemForClient(db, item) {
+  const root = rootDbOf(db);
+  const task = item.taskId ? root.tasks.find((candidate) => candidate.id === item.taskId) : null;
+  const assignee = item.assignedUserId ? root.users.find((user) => user.id === item.assignedUserId) : null;
+  const reviewer = item.reviewerId ? root.users.find((user) => user.id === item.reviewerId) : null;
+  return {
+    ...item,
+    task: operationTaskSummary(task),
+    assignee: safeUser(assignee),
+    reviewer: safeUser(reviewer)
+  };
+}
+
+function serializeAdminOperations(db, actor) {
+  const root = rootDbOf(db);
+  const store = operationsStore(root);
+  const items = store.workItems.map((item) => operationItemForClient(root, item));
+  const designers = root.users
+    .filter((user) => user.active !== false && user.canReceiveJobs !== false)
+    .map((user) => {
+      ensureUserRuntime(root, user.id);
+      const timer = root.userTimers[user.id];
+      const task = timer.activeTaskId ? root.tasks.find((candidate) => candidate.id === timer.activeTaskId && candidate.ownerId === user.id) : null;
+      const profile = store.profiles[user.id] && typeof store.profiles[user.id] === "object" ? store.profiles[user.id] : {};
+      const nextItems = items
+        .filter((item) => item.assignedUserId === user.id && new Set(["next", "rework"]).has(item.lane))
+        .sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+      const qcItems = items.filter((item) => item.assignedUserId === user.id && new Set(["qc", "rework"]).has(item.lane));
+      return {
+        user: safeUser(user),
+        shiftLabel: safeString(profile.shiftLabel, 120),
+        statusNote: safeString(profile.statusNote, 300),
+        phase: timer.phase || "idle",
+        activeTask: operationTaskSummary(task),
+        expectedFinishAt: operationExpectedFinish(timer),
+        breakRemainingSeconds: currentBreakRemaining(timer),
+        breakWindowLabel: timer.breakWindowLabel || "",
+        nextItems: nextItems.slice(0, 4),
+        qcItems: qcItems.slice(0, 4),
+        rowCount: root.tasks.filter((candidate) => candidate.ownerId === user.id).length
+      };
+    })
+    .sort((a, b) => a.user.displayName.localeCompare(b.user.displayName));
+  const metrics = {
+    designers: designers.length,
+    active: designers.filter((entry) => entry.activeTask && new Set(["review", "work", "paused", "expired", "break"]).has(entry.phase)).length,
+    onBreak: designers.filter((entry) => entry.phase === "break").length,
+    handover: items.filter((item) => item.lane === "handover").length,
+    qc: items.filter((item) => item.lane === "qc").length,
+    rework: items.filter((item) => item.lane === "rework").length,
+    queued: items.filter((item) => new Set(["next", "rework"]).has(item.lane)).length
+  };
+  return {
+    serverNow: nowIso(),
+    currentUser: safeUser(actor),
+    capabilities: {
+      review: adminCan(actor, "review"),
+      coordinate: adminCan(actor, "coordinate")
+    },
+    metrics,
+    designers,
+    links: store.links,
+    workItems: items.sort((a, b) => (a.sequence || 0) - (b.sequence || 0)),
+    users: root.users.filter((user) => user.active !== false).map(safeUser),
+    reviewers: root.users.filter((user) => user.active !== false && user.role === "admin" && adminCan(user, "review")).map(safeUser),
+    categories: root.categories || []
+  };
+}
+
 function normalizeUsername(value) {
   return safeString(value, 80).toLowerCase().replace(/[^a-z0-9._-]/g, "");
 }
@@ -378,6 +689,8 @@ function safeUser(user) {
     username: user.username,
     displayName: user.displayName,
     role: user.role,
+    adminScope: user.role === "admin" ? normalizeAdminScope(user.adminScope) : "",
+    canReceiveJobs: user.canReceiveJobs !== false,
     active: user.active !== false,
     mustChangePassword: Boolean(user.mustChangePassword),
     onboardingCompleted: user.onboardingCompleted !== false
@@ -395,6 +708,8 @@ function createUser(db, {
   serviceNowProductionName,
   password,
   role = "designer",
+  adminScope = "both",
+  canReceiveJobs,
   mustChangePassword = false,
   onboardingCompleted = false
 }) {
@@ -404,12 +719,15 @@ function createUser(db, {
   validatePassword(password);
   const now = nowIso();
   const { salt, hash } = hashPassword(password);
+  const normalizedRole = role === "admin" ? "admin" : "designer";
   const user = {
     id: randomUUID(),
     username: cleanUsername,
     displayName: safeString(displayName || cleanUsername, 120),
     serviceNowProductionName: safeString(serviceNowProductionName || displayName || cleanUsername, 120),
-    role: role === "admin" ? "admin" : "designer",
+    role: normalizedRole,
+    adminScope: normalizedRole === "admin" ? normalizeAdminScope(adminScope) : "",
+    canReceiveJobs: normalizedRole === "designer" ? true : Boolean(canReceiveJobs),
     active: true,
     passwordHash: hash,
     passwordSalt: salt,
@@ -436,6 +754,7 @@ function bootstrapAdminIfNeeded(db) {
     for (const task of db.tasks) {
       if (!task.ownerId) task.ownerId = admin.id;
     }
+    if (db.tasks.some((task) => task.ownerId === admin.id)) admin.canReceiveJobs = true;
     db.userSettings[admin.id] = {
       ...initialDb.settings,
       ...(db.settings || {})
@@ -1197,6 +1516,7 @@ function parkActiveTask(db, now = nowIso()) {
   task.workBudgetSeconds = clampSeconds(db.timer.workBudgetSeconds, db.settings.workBudgetSeconds);
   if (!task.pauseStartedAt) task.pauseStartedAt = now;
   task.updatedAt = now;
+  upsertTaskOperation(db, task, "next");
   audit(db, "task.park", { id: task.id, workRemainingSeconds: task.workRemainingSeconds });
   return task;
 }
@@ -2925,6 +3245,8 @@ async function handleApi(req, res, url) {
         displayName: body.displayName,
         password: body.password,
         role: body.role === "admin" ? "admin" : "designer",
+        adminScope: body.adminScope,
+        canReceiveJobs: body.canReceiveJobs,
         mustChangePassword: Boolean(body.mustChangePassword)
       });
       audit(rootDb, "admin.userCreate", { adminId: authUser.id, userId: user.id, username: user.username, role: user.role });
@@ -2955,6 +3277,16 @@ async function handleApi(req, res, url) {
     rootDb.users = rootDb.users.filter((item) => item.id !== user.id);
     delete rootDb.userSettings[user.id];
     delete rootDb.userTimers[user.id];
+    delete operationsStore(rootDb).profiles[user.id];
+    for (const item of operationsStore(rootDb).workItems) {
+      if (item.assignedUserId === user.id) {
+        item.assignedUserId = null;
+        item.taskId = null;
+        item.lane = "handover";
+        item.updatedAt = nowIso();
+      }
+      if (item.reviewerId === user.id) item.reviewerId = null;
+    }
     audit(rootDb, "admin.userDelete", {
       adminId: authUser.id,
       userId: user.id,
@@ -2975,9 +3307,17 @@ async function handleApi(req, res, url) {
       const nextRole = Object.prototype.hasOwnProperty.call(body, "role")
         ? (body.role === "admin" ? "admin" : "designer")
         : user.role;
+      const previousRole = user.role;
       const nextActive = Object.prototype.hasOwnProperty.call(body, "active")
         ? Boolean(body.active)
         : user.active !== false;
+      let nextCanReceiveJobs = Object.prototype.hasOwnProperty.call(body, "canReceiveJobs")
+        ? Boolean(body.canReceiveJobs)
+        : user.canReceiveJobs !== false;
+      if (nextRole === "designer") nextCanReceiveJobs = true;
+      if (previousRole === "designer" && nextRole === "admin" && !Object.prototype.hasOwnProperty.call(body, "canReceiveJobs")) {
+        nextCanReceiveJobs = true;
+      }
       const hasOtherActiveAdmin = rootDb.users.some((item) => item.id !== user.id && item.active !== false && item.role === "admin");
       if ((!nextActive || nextRole !== "admin") && user.role === "admin" && !hasOtherActiveAdmin) {
         throw new Error("At least one active admin is required.");
@@ -2990,6 +3330,13 @@ async function handleApi(req, res, url) {
         user.serviceNowProductionName = user.displayName;
       }
       user.role = nextRole;
+      user.adminScope = nextRole === "admin"
+        ? normalizeAdminScope(Object.prototype.hasOwnProperty.call(body, "adminScope") ? body.adminScope : user.adminScope)
+        : "";
+      if (!nextCanReceiveJobs && operationsStore(rootDb).workItems.some((item) => item.assignedUserId === user.id && item.lane !== "approved")) {
+        throw new Error("Reassign this user's active and queued Operations jobs before turning off designer workload.");
+      }
+      user.canReceiveJobs = nextCanReceiveJobs;
       user.active = nextActive;
       if (Object.prototype.hasOwnProperty.call(body, "password") && String(body.password || "")) {
         validatePassword(body.password);
@@ -3007,6 +3354,216 @@ async function handleApi(req, res, url) {
     } catch (error) {
       return json(res, 400, { error: error.message || "Could not update user." });
     }
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/admin/operations") {
+    if (authUser.role !== "admin") return json(res, 403, { error: "Admin access required." });
+    return json(res, 200, serializeAdminOperations(rootDb, authUser));
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/admin/operations/links") {
+    if (!adminCan(authUser, "coordinate")) return json(res, 403, { error: "Coordinator access required." });
+    const body = await readBody(req);
+    const href = safeHttpUrl(body.href || body.url);
+    if (!href) return json(res, 400, { error: "Enter a complete http or https link." });
+    const link = normalizeOperationsLink({
+      id: randomUUID(),
+      title: body.title || new URL(href).hostname,
+      href,
+      createdBy: authUser.id,
+      createdAt: nowIso()
+    });
+    operationsStore(rootDb).links.push(link);
+    audit(rootDb, "operations.linkCreate", { adminId: authUser.id, linkId: link.id });
+    await saveDb(rootDb);
+    return json(res, 201, serializeAdminOperations(rootDb, authUser));
+  }
+
+  const operationsLinkMatch = url.pathname.match(/^\/api\/admin\/operations\/links\/([^/]+)$/);
+  if (operationsLinkMatch && req.method === "DELETE") {
+    if (!adminCan(authUser, "coordinate")) return json(res, 403, { error: "Coordinator access required." });
+    const id = decodeURIComponent(operationsLinkMatch[1]);
+    const store = operationsStore(rootDb);
+    const before = store.links.length;
+    store.links = store.links.filter((link) => link.id !== id);
+    if (before === store.links.length) return json(res, 404, { error: "Link not found." });
+    audit(rootDb, "operations.linkDelete", { adminId: authUser.id, linkId: id });
+    await saveDb(rootDb);
+    return json(res, 200, serializeAdminOperations(rootDb, authUser));
+  }
+
+  const operationsProfileMatch = url.pathname.match(/^\/api\/admin\/operations\/profiles\/([^/]+)$/);
+  if (operationsProfileMatch && req.method === "PATCH") {
+    if (!adminCan(authUser, "coordinate")) return json(res, 403, { error: "Coordinator access required." });
+    const userId = decodeURIComponent(operationsProfileMatch[1]);
+    if (!rootDb.users.some((user) => user.id === userId)) return json(res, 404, { error: "Designer account not found." });
+    const body = await readBody(req);
+    const store = operationsStore(rootDb);
+    store.profiles[userId] = {
+      ...(store.profiles[userId] || {}),
+      shiftLabel: safeString(body.shiftLabel, 120),
+      statusNote: safeString(body.statusNote, 300),
+      updatedAt: nowIso()
+    };
+    audit(rootDb, "operations.profileUpdate", { adminId: authUser.id, userId });
+    await saveDb(rootDb);
+    return json(res, 200, serializeAdminOperations(rootDb, authUser));
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/admin/operations/items") {
+    if (!adminCan(authUser, "coordinate")) return json(res, 403, { error: "Coordinator access required." });
+    const body = await readBody(req);
+    const requestNo = cleanJobCode(body.requestNo);
+    if (!requestNo) return json(res, 400, { error: "Enter a valid DTP request number." });
+    const now = nowIso();
+    const assignedUserId = safeString(body.assignedUserId, 120) || null;
+    const item = normalizeOperationsItem({
+      id: randomUUID(),
+      requestNo,
+      client: body.client,
+      slides: body.slides,
+      category: body.category,
+      deadlineText: body.deadlineText,
+      etaText: body.etaText,
+      notes: body.notes,
+      assignedUserId,
+      lane: assignedUserId ? "next" : "handover",
+      sequence: nextOperationSequence(rootDb, assignedUserId ? "next" : "handover", assignedUserId),
+      createdBy: authUser.id,
+      createdAt: now,
+      updatedAt: now
+    });
+    operationsStore(rootDb).workItems.push(item);
+    if (assignedUserId) createTaskForOperation(rootDb, item, assignedUserId);
+    ensureCategory(rootDb, item.category);
+    audit(rootDb, "operations.itemCreate", { adminId: authUser.id, itemId: item.id, requestNo });
+    await saveDb(rootDb);
+    return json(res, 201, serializeAdminOperations(rootDb, authUser));
+  }
+
+  const operationsItemMatch = url.pathname.match(/^\/api\/admin\/operations\/items\/([^/]+)$/);
+  if (operationsItemMatch && req.method === "PATCH") {
+    const id = decodeURIComponent(operationsItemMatch[1]);
+    const item = operationItemById(rootDb, id);
+    if (!item) return json(res, 404, { error: "Operations item not found." });
+    const body = await readBody(req);
+    const action = safeString(body.action, 40);
+    const reviewAction = new Set(["approve", "rework"]).has(action);
+    const reviewerOnlyUpdate = !action
+      && Object.keys(body).length > 0
+      && Object.keys(body).every((key) => key === "reviewerId");
+    if ((reviewAction || reviewerOnlyUpdate) && !adminCan(authUser, "review")) return json(res, 403, { error: "QC reviewer access required." });
+    if (!reviewAction && !reviewerOnlyUpdate && !adminCan(authUser, "coordinate")) return json(res, 403, { error: "Coordinator access required." });
+
+    try {
+      if (action === "approve") {
+        if (item.lane !== "qc") throw new Error("Only a QC-pending job can be approved.");
+        item.lane = "approved";
+        item.reviewerId = safeString(body.reviewerId, 120) || authUser.id;
+        item.completedAt = nowIso();
+      } else if (action === "rework") {
+        if (item.lane !== "qc") throw new Error("Only a QC-pending job can be sent for rework.");
+        if (!item.assignedUserId) throw new Error("Assign a designer before sending rework.");
+        if (item.taskId) item.historyTaskIds = [...new Set([...(item.historyTaskIds || []), item.taskId])].slice(-20);
+        item.reworkCount = Math.max(0, Number(item.reworkCount) || 0) + 1;
+        item.reviewerId = safeString(body.reviewerId, 120) || authUser.id;
+        item.taskId = null;
+        item.lane = "rework";
+        item.sequence = nextOperationSequence(rootDb, "rework", item.assignedUserId);
+        createTaskForOperation(rootDb, item, item.assignedUserId, { notes: `QC rework ${item.reworkCount}` });
+      } else if (action === "move-up" || action === "move-down") {
+        const peers = operationsStore(rootDb).workItems
+          .filter((candidate) => candidate.id !== item.id && candidate.lane === item.lane && candidate.assignedUserId === item.assignedUserId)
+          .sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+        const ordered = [...peers, item].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
+        const index = ordered.findIndex((candidate) => candidate.id === item.id);
+        const swapIndex = action === "move-up" ? index - 1 : index + 1;
+        if (swapIndex >= 0 && swapIndex < ordered.length) {
+          const other = ordered[swapIndex];
+          const current = item.sequence;
+          item.sequence = other.sequence;
+          other.sequence = current;
+          other.updatedAt = nowIso();
+        }
+      } else {
+        const editableFields = ["client", "slides", "category", "deadlineText", "etaText", "notes"];
+        for (const field of editableFields) {
+          if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+          if (field === "deadlineText") item[field] = cleanDeadlineText(body[field]);
+          else item[field] = safeString(body[field], field === "notes" ? 800 : 120);
+        }
+        if (Object.prototype.hasOwnProperty.call(body, "requestNo")) {
+          const requestNo = cleanJobCode(body.requestNo);
+          if (!requestNo) throw new Error("Enter a valid DTP request number.");
+          item.requestNo = requestNo;
+        }
+        if (Object.prototype.hasOwnProperty.call(body, "reviewerId")) {
+          if (!adminCan(authUser, "review")) throw new Error("QC reviewer access required.");
+          item.reviewerId = safeString(body.reviewerId, 120) || null;
+        }
+        if (Object.prototype.hasOwnProperty.call(body, "assignedUserId")) {
+          const nextAssignee = safeString(body.assignedUserId, 120) || null;
+          const task = item.taskId ? rootDb.tasks.find((candidate) => candidate.id === item.taskId) : null;
+          if (!nextAssignee) {
+            if (task && (task.startAt || task.finishedAt || taskIsActiveAnywhere(rootDb, task.id))) {
+              throw new Error("A started job cannot be returned to the unassigned handover queue.");
+            }
+            if (task?.operationsManaged) rootDb.tasks = rootDb.tasks.filter((candidate) => candidate.id !== task.id);
+            item.taskId = null;
+            item.assignedUserId = null;
+            item.lane = "handover";
+            item.sequence = nextOperationSequence(rootDb, "handover");
+          } else if (task) {
+            if (task.finishedAt || taskIsActiveAnywhere(rootDb, task.id)) throw new Error("A running or finished job cannot be reassigned.");
+            if (!rootDb.users.some((user) => user.id === nextAssignee && user.active !== false && user.canReceiveJobs !== false)) throw new Error("Designer account not found.");
+            task.ownerId = nextAssignee;
+            task.updatedAt = nowIso();
+            item.assignedUserId = nextAssignee;
+            item.lane = item.reworkCount ? "rework" : "next";
+            item.sequence = nextOperationSequence(rootDb, item.lane, nextAssignee);
+          } else {
+            item.assignedUserId = nextAssignee;
+            item.lane = item.reworkCount ? "rework" : "next";
+            item.sequence = nextOperationSequence(rootDb, item.lane, nextAssignee);
+            createTaskForOperation(rootDb, item, nextAssignee);
+          }
+        }
+
+        const task = item.taskId ? rootDb.tasks.find((candidate) => candidate.id === item.taskId) : null;
+        if (task && !task.startAt && !task.finishedAt) {
+          task.requestNo = item.requestNo;
+          task.client = item.client;
+          task.slides = item.slides;
+          task.category = item.category;
+          task.deadlineText = item.deadlineText;
+          task.rawJob = [item.requestNo, item.client, item.slides ? `${item.slides} Slides` : "", item.deadlineText].filter(Boolean).join(" / ");
+          task.updatedAt = nowIso();
+        }
+      }
+      item.updatedAt = nowIso();
+      ensureCategory(rootDb, item.category);
+      audit(rootDb, "operations.itemUpdate", { adminId: authUser.id, itemId: item.id, action: action || "edit" });
+      await saveDb(rootDb);
+      return json(res, 200, serializeAdminOperations(rootDb, authUser));
+    } catch (error) {
+      return json(res, 400, { error: error.message || "Could not update operations item." });
+    }
+  }
+
+  if (operationsItemMatch && req.method === "DELETE") {
+    if (!adminCan(authUser, "coordinate")) return json(res, 403, { error: "Coordinator access required." });
+    const id = decodeURIComponent(operationsItemMatch[1]);
+    const store = operationsStore(rootDb);
+    const item = store.workItems.find((candidate) => candidate.id === id);
+    if (!item) return json(res, 404, { error: "Operations item not found." });
+    const task = item.taskId ? rootDb.tasks.find((candidate) => candidate.id === item.taskId) : null;
+    if (task && task.operationsManaged && !task.startAt && !task.finishedAt && !taskIsActiveAnywhere(rootDb, task.id)) {
+      rootDb.tasks = rootDb.tasks.filter((candidate) => candidate.id !== task.id);
+    }
+    store.workItems = store.workItems.filter((candidate) => candidate.id !== id);
+    audit(rootDb, "operations.itemDelete", { adminId: authUser.id, itemId: id });
+    await saveDb(rootDb);
+    return json(res, 200, serializeAdminOperations(rootDb, authUser));
   }
 
   if (req.method === "PUT" && url.pathname === "/api/settings") {
@@ -3061,6 +3618,7 @@ async function handleApi(req, res, url) {
     };
     ensureCategory(db, task.category);
     db.tasks.push(attachOwner(db, task));
+    upsertTaskOperation(db, task, "current");
     replaceTimer(db, {
       ...db.timer,
       phase: "review",
@@ -3162,6 +3720,7 @@ async function handleApi(req, res, url) {
       task.workBudgetSeconds = budget;
       task.workRemainingSeconds = budget;
       task.updatedAt = now;
+      upsertTaskOperation(db, task, "current");
       audit(db, "timer.startWork", { id: task.id, budget });
     } else if (type === "pauseWork") {
       db.timer.workRemainingBaseSeconds = currentWorkRemaining(db.timer);
@@ -3182,6 +3741,7 @@ async function handleApi(req, res, url) {
       setExpectedFinishFromRemainingWork(db.timer, Date.parse(now));
       task.workRemainingSeconds = db.timer.workRemainingBaseSeconds;
       task.updatedAt = now;
+      upsertTaskOperation(db, task, "current");
       audit(db, "timer.resumeWork", { activeTaskId: db.timer.activeTaskId });
     } else if (type === "continueTask") {
       const id = safeString(body.taskId, 80);
@@ -3196,6 +3756,10 @@ async function handleApi(req, res, url) {
       finalizeTaskPause(nextTask, now);
       const budget = clampSeconds(nextTask.workBudgetSeconds, db.settings.workBudgetSeconds) || db.settings.workBudgetSeconds;
       const remaining = clampSeconds(nextTask.workRemainingSeconds, budget) || budget;
+      if (!nextTask.startAt) {
+        nextTask.startAt = now;
+        nextTask.dateWorked = dubaiDateKey(new Date());
+      }
       db.timer.phase = "work";
       db.timer.activeTaskId = id;
       db.timer.reviewStartedAt = null;
@@ -3211,6 +3775,7 @@ async function handleApi(req, res, url) {
       db.timer.expectedFinishAt = new Date(Date.parse(now) + remaining * 1000).toISOString();
       nextTask.workRemainingSeconds = remaining;
       nextTask.updatedAt = now;
+      upsertTaskOperation(db, nextTask, "current");
       audit(db, "task.continue", { id, remaining });
     } else if (type === "startBreak") {
       if ((!task || task.finishedAt) && !hasTaskOnDubaiDate(db)) {
@@ -3306,9 +3871,11 @@ async function handleApi(req, res, url) {
       }
       task.finishedAt = now;
       task.updatedAt = now;
+      upsertTaskOperation(db, task, "qc");
       resetTimerToIdle(db, { preserveBreak: true });
       audit(db, "task.end", { id: task.id });
     } else if (type === "resetTimers") {
+      if (task && !task.finishedAt) upsertTaskOperation(db, task, "next");
       resetTimerToIdle(db);
       audit(db, "timer.reset");
     } else if (type === "updateBudget") {
@@ -3504,6 +4071,7 @@ async function handleApi(req, res, url) {
     const idSet = new Set(ids);
     const before = db.tasks.length;
     replaceTasks(db, db.tasks.filter((task) => !(idSet.has(task.id) && taskBelongsToScope(db, task))));
+    for (const id of idSet) removeTaskOperation(db, id);
     if (db.timer.activeTaskId && idSet.has(db.timer.activeTaskId)) resetTimerToIdle(db);
 
     const deleted = before - db.tasks.length;
@@ -3529,6 +4097,8 @@ async function handleApi(req, res, url) {
     }
     applyTaskPatch(task, patch);
     ensureCategory(db, task.category);
+    const operationItem = operationItemByTask(db, task.id);
+    if (operationItem) syncOperationItemFromTask(operationItem, task);
     audit(db, "task.patch", { id, fields: Object.keys(patch) });
     await saveDb(db);
     return json(res, 200, serializeForClient(db));
@@ -3538,6 +4108,7 @@ async function handleApi(req, res, url) {
     const id = decodeURIComponent(taskMatch[1]);
     const before = db.tasks.length;
     replaceTasks(db, db.tasks.filter((task) => !(task.id === id && taskBelongsToScope(db, task))));
+    removeTaskOperation(db, id);
     if (db.timer.activeTaskId === id) resetTimerToIdle(db);
     if (db.tasks.length === before) return json(res, 404, { error: "Task not found." });
     audit(db, "task.delete", { id });
