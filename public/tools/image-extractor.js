@@ -62,14 +62,17 @@
   }
 
   function parseUrls(text) {
-    return [...new Set(
-      String(text || "")
-        .split(/[\s,]+/)
-        .map((value) => value.trim())
-        .filter(Boolean)
-        .map((value) => (/^https?:\/\//i.test(value) ? value : `https://${value}`))
-        .filter((value) => /^https?:\/\/[^\s,]+$/i.test(value))
-    )];
+    if (!window.DtpUrlParser) return [];
+    return window.DtpUrlParser.extractHttpUrls(text);
+  }
+
+  function normalizePastedInput(element, multiple = false) {
+    window.setTimeout(() => {
+      const urls = parseUrls(element.value);
+      if (!urls.length) return;
+      element.value = multiple ? urls.join("\n") : urls[0];
+      setStatus(`${urls.length} valid link${urls.length === 1 ? "" : "s"} ready`);
+    }, 0);
   }
 
   function imageFormat(item) {
@@ -213,6 +216,7 @@
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           urls,
+          rawInput: raw,
           includeCss: els.includeCss.checked,
           followLinks: els.followLinks.checked,
           pageLimit: Number(els.pageLimit.value || 12)
@@ -227,7 +231,10 @@
       addItems(payload.items);
       addWarnings(payload.warnings);
       if (payload.limited) addWarnings(["The result was limited to 600 website images."]);
-      setStatus(`Added ${(payload.items || []).length} image${(payload.items || []).length === 1 ? "" : "s"}`);
+      const added = (payload.items || []).length;
+      setStatus(added
+        ? `Added ${added} image${added === 1 ? "" : "s"}`
+        : "No images found on that site");
     } catch (error) {
       addWarnings([error.message || "Website extraction failed."]);
       setStatus("Scan failed");
@@ -581,6 +588,8 @@
       scanUrls();
     }
   });
+  els.singleUrlInput.addEventListener("paste", () => normalizePastedInput(els.singleUrlInput));
+  els.urlInput.addEventListener("paste", () => normalizePastedInput(els.urlInput, true));
   els.pickFilesBtn.addEventListener("click", (event) => {
     event.stopPropagation();
     els.fileInput.click();

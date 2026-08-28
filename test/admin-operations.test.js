@@ -135,7 +135,26 @@ test("admin operations routes assignment through the designer tracker and QC", a
       workedHours: "30"
     })
   });
-  assert.equal(manualResponse.status, 201, JSON.stringify(await manualResponse.json()));
+  const manualState = await manualResponse.json();
+  assert.equal(manualResponse.status, 201, JSON.stringify(manualState));
+  assert.equal(manualState.tasks.find((task) => task.requestNo === "DTP0000001").deadlineText, "MON 9AM");
+
+  const deadlineCases = [
+    ["DTP0000002 / Client ASAP / 2 Slides / (Deadline: ASAP)", "ASAP"],
+    ["DTP0000003 / Client Friday / 3 Slides / Deadline Friday, 10.30 p.m. DXB", "FRI 10:30PM"],
+    ["DTP0000004 / Client Blank / 4 Slides / No confirmed deadline", ""]
+  ];
+  for (const [rawJob, expectedDeadline] of deadlineCases) {
+    const response = await fetch(`${baseUrl}/api/tasks/manual`, {
+      method: "POST",
+      headers: { ...headers, "x-dtp-view-user": createUser.user.id },
+      body: JSON.stringify({ rawJob, dateWorked: "2026-01-01", workedHours: "0" })
+    });
+    const state = await response.json();
+    assert.equal(response.status, 201, JSON.stringify(state));
+    const requestNo = rawJob.match(/DTP\d{7}/)[0];
+    assert.equal(state.tasks.find((task) => task.requestNo === requestNo).deadlineText, expectedDeadline);
+  }
 
   const promoteResponse = await fetch(`${baseUrl}/api/admin/users/${encodeURIComponent(createUser.user.id)}`, {
     method: "PATCH",
@@ -155,8 +174,7 @@ test("admin operations routes assignment through the designer tracker and QC", a
       client: "Operations Client",
       slides: "6",
       category: "Visual",
-      deadlineText: "FRI 3PM",
-      etaText: "2 hours",
+      dueText: "fri 3 pm",
       assignedUserId: createUser.user.id
     })
   });
@@ -166,6 +184,8 @@ test("admin operations routes assignment through the designer tracker and QC", a
   assert.ok(item);
   assert.equal(item.lane, "next");
   assert.equal(item.assignedUserId, createUser.user.id);
+  assert.equal(item.deadlineText, "FRI 3PM");
+  assert.equal(item.etaText, "");
   assert.equal(itemData.workItems.some((candidate) => candidate.requestNo === "DTP0000001"), false, "historical imported rows must not enter Operations");
 
   const designerStateResponse = await fetch(`${baseUrl}/api/state`, {
@@ -246,7 +266,16 @@ test("admin operations routes assignment through the designer tracker and QC", a
   assert.equal(approveResponse.status, 200, JSON.stringify(approved));
   assert.equal(approved.workItems.find((candidate) => candidate.id === item.id).lane, "approved");
 
+  const dismissApprovedResponse = await fetch(`${baseUrl}/api/admin/operations/items/${encodeURIComponent(item.id)}`, {
+    method: "DELETE",
+    headers
+  });
+  const dismissed = await dismissApprovedResponse.json();
+  assert.equal(dismissApprovedResponse.status, 200, JSON.stringify(dismissed));
+  assert.equal(dismissed.workItems.some((candidate) => candidate.id === item.id), false, "sent QC card should leave the approved board");
+
   const db = JSON.parse(await fs.readFile(path.join(dataDir, "tracker.json"), "utf8"));
   assert.equal(db.tasks.some((task) => task.requestNo === "DTP0000001"), true, "historical tracker data remains intact");
+  assert.equal(db.tasks.some((task) => task.requestNo === "DTP0099001" && task.finishedAt), true, "dismissing an approved card preserves the finished tracker row");
   assert.equal(db.operations.workItems.some((candidate) => candidate.requestNo === "DTP0000001"), false);
 });

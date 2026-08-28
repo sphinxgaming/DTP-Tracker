@@ -1693,23 +1693,53 @@ body.auth-locked .auth-gate {
 
 .operations-approved-list {
   align-items: stretch;
-  gap: 0;
+  gap: 8px;
   flex-wrap: wrap;
   padding: 8px 12px 14px;
 }
 
 .approved-item {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   min-width: 240px;
-  gap: 3px;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--soft);
   padding: 9px 12px;
 }
 
-.approved-item small {
+.approved-item-main {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.approved-item-main small {
   color: var(--muted);
   font-size: 12px;
+}
+
+.approved-dismiss {
+  display: inline-grid;
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.approved-dismiss:hover,
+.approved-dismiss:focus-visible {
+  border-color: #c94e58;
+  background: #fff0f0;
+  color: #9d1717;
 }
 
 :root[data-theme="dark"] .timer-display,
@@ -1819,6 +1849,13 @@ body.auth-locked .auth-gate {
   border-color: #4d8d5a;
   background: #173c24;
   color: #9aeeaa;
+}
+
+:root[data-theme="dark"] .approved-dismiss:hover,
+:root[data-theme="dark"] .approved-dismiss:focus-visible {
+  border-color: #9a4f56;
+  background: #461f25;
+  color: #ffb3b8;
 }
 
 :root[data-theme="dark"] .operations-table .approve {

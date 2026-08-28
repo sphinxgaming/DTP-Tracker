@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Image Extractor | DTP Tracker</title>
     <link rel="stylesheet" href="/tools/tool-shell.css?v=20260716-integrated-tools">
-    <link rel="stylesheet" href="/tools/image-extractor.css?v=20260716-integrated-tools">
+    <link rel="stylesheet" href="/tools/image-extractor.css?v=20260828-reliable-links">
   </head>
   <body class="tool-loading">
     <header class="tool-header">
@@ -41,13 +41,13 @@
 
         <div class="source-view is-active" data-view="single">
           <div class="url-submit">
-            <input id="singleUrlInput" type="url" spellcheck="false" placeholder="Enter a public URL, such as example.com">
+            <input id="singleUrlInput" type="text" inputmode="url" autocomplete="url" spellcheck="false" placeholder="Paste a website link or domain">
             <button class="primary" id="scanBtn" type="button">Extract</button>
           </div>
         </div>
 
         <div class="source-view" data-view="multiple">
-          <textarea id="urlInput" spellcheck="false" placeholder="https://example.com&#10;https://example.org/gallery"></textarea>
+          <textarea id="urlInput" spellcheck="false" placeholder="Paste one or more website links"></textarea>
           <button class="primary multiple-action" id="scanMultipleBtn" type="button">Extract sites</button>
         </div>
 
@@ -115,6 +115,7 @@
 
     <script src="/tools/tool-auth.js?v=20260716-integrated-tools"></script>
     <script src="/tools/vendor/jszip.min.js"></script>
-    <script src="/tools/image-extractor.js?v=20260716-integrated-tools" defer></script>
+    <script src="/tools/url-parser.js?v=20260828-reliable-links"></script>
+    <script src="/tools/image-extractor.js?v=20260828-reliable-links" defer></script>
   </body>
 </html>

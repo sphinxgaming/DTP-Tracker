@@ -294,7 +294,6 @@ function bindElements() {
     "operationsSlides",
     "operationsCategory",
     "operationsDeadline",
-    "operationsEta",
     "operationsAssignee",
     "operationsNotes",
     "operationsQueueRows",
@@ -929,7 +928,7 @@ function renderOperationsDesigners() {
         <td>${current ? compactJobMarkup(current) : `<span class="muted-value">No active job</span>`}</td>
         <td><strong>${escapeHtml(eta)}</strong><span class="cell-subtext">${escapeHtml(entry.activeTask?.deadlineText || "No current deadline")}</span></td>
         <td>${qc.length ? `<div class="qc-status-stack">${qc.map((item) => `<span class="lane-chip ${escapeAttr(item.lane)}">${escapeHtml(item.lane === "rework" ? "Rework" : "Waiting QC")} · ${escapeHtml(item.requestNo)}</span>`).join("")}</div>` : `<span class="muted-value">Clear</span>`}</td>
-        <td>${next.length ? next.map((item, index) => `<div class="next-job-line"><b>${index + 1}</b>${requestCopyMarkup(item.requestNo)}<span>${escapeHtml(item.etaText || item.deadlineText || "ETA not set")}</span></div>`).join("") : `<span class="muted-value">No queued job</span>`}</td>
+        <td>${next.length ? next.map((item, index) => `<div class="next-job-line"><b>${index + 1}</b>${requestCopyMarkup(item.requestNo)}<span>${escapeHtml(operationDueText(item) || "Not provided")}</span></div>`).join("") : `<span class="muted-value">No queued job</span>`}</td>
         <td><span class="presence-pill ${escapeAttr(entry.phase)}">${escapeHtml(availability)}</span>${entry.breakWindowLabel ? `<span class="cell-subtext">${escapeHtml(entry.breakWindowLabel)}</span>` : ""}</td>
         ${canViewTrackers ? `<td><button type="button" data-ops-action="view-tracker" data-user-id="${escapeAttr(user.id)}">View tracker</button></td>` : ""}
       </tr>
@@ -947,10 +946,15 @@ function reviewerOptions(selectedId = "") {
   return `<option value="">Auto / current reviewer</option>${reviewers.map((user) => `<option value="${escapeAttr(user.id)}" ${user.id === selectedId ? "selected" : ""}>${escapeHtml(user.displayName || user.username)}</option>`).join("")}`;
 }
 
+function operationDueText(item) {
+  return String(item?.deadlineText || item?.etaText || "").trim();
+}
+
 function renderOperationsQueues() {
   const items = adminOperations?.workItems || [];
   const canCoordinate = Boolean(adminOperations?.capabilities?.coordinate);
   const canReview = Boolean(adminOperations?.capabilities?.review);
+  const canDismissApproved = canCoordinate || canReview;
   const queue = items.filter((item) => new Set(["handover", "next", "rework"]).has(item.lane));
   const qc = items.filter((item) => item.lane === "qc");
   const approved = items.filter((item) => item.lane === "approved").sort((a, b) => Date.parse(b.completedAt || b.updatedAt) - Date.parse(a.completedAt || a.updatedAt));
@@ -963,8 +967,8 @@ function renderOperationsQueues() {
         ? `<select class="ops-inline-select" data-ops-item-field="assignedUserId">${userOptions(item.assignedUserId)}</select>`
         : escapeHtml(item.assignee?.displayName || "Unassigned")}</td>
       <td>${canCoordinate
-        ? `<input class="ops-inline-input" data-ops-item-field="etaText" value="${escapeAttr(item.etaText || "")}" placeholder="ETA in DXB"><input class="ops-inline-input" data-ops-item-field="deadlineText" value="${escapeAttr(item.deadlineText || "")}" placeholder="Deadline">`
-        : `<strong>${escapeHtml(item.etaText || "ETA not set")}</strong><span class="cell-subtext">${escapeHtml(item.deadlineText || "No deadline")}</span>`}</td>
+        ? `<input class="ops-inline-input" data-ops-item-field="dueText" value="${escapeAttr(operationDueText(item))}" placeholder="ETA / deadline (DXB)" aria-label="ETA or deadline in DXB">`
+        : `<strong>${escapeHtml(operationDueText(item) || "Not provided")}</strong>`}</td>
       <td>${canCoordinate
         ? `<button type="button" data-ops-action="move-up" aria-label="Move ${escapeAttr(item.requestNo)} up" title="Move up">↑</button><button type="button" data-ops-action="move-down" aria-label="Move ${escapeAttr(item.requestNo)} down" title="Move down">↓</button>`
         : `<strong>${index + 1}</strong>`}</td>
@@ -989,7 +993,16 @@ function renderOperationsQueues() {
   `).join("") : `<tr><td colspan="5" class="empty">No jobs waiting for quality check.</td></tr>`;
 
   els.operationsApprovedList.innerHTML = approved.length
-    ? approved.slice(0, 30).map((item) => `<span class="approved-item">${requestCopyMarkup(item.requestNo)}<span>${escapeHtml(item.assignee?.displayName || "Unassigned")}</span><small>${escapeHtml(item.reviewer?.displayName || "Approved")} · ${escapeHtml(formatDateTime(item.completedAt || item.updatedAt, DUBAI_TZ))}</small></span>`).join("")
+    ? approved.slice(0, 30).map((item) => `
+      <article class="approved-item" data-ops-item-id="${escapeAttr(item.id)}">
+        <div class="approved-item-main">
+          ${requestCopyMarkup(item.requestNo)}
+          <span>${escapeHtml(item.assignee?.displayName || "Unassigned")}</span>
+          <small>${escapeHtml(item.reviewer?.displayName || "Approved")} · ${escapeHtml(formatDateTime(item.completedAt || item.updatedAt, DUBAI_TZ))}</small>
+        </div>
+        ${canDismissApproved ? `<button class="approved-dismiss" type="button" data-ops-action="dismiss-approved" data-ops-item-id="${escapeAttr(item.id)}" aria-label="Remove ${escapeAttr(item.requestNo)} from QC approved" title="Remove from QC approved">×</button>` : ""}
+      </article>
+    `).join("")
     : `<span class="operations-empty-inline">Approved jobs will appear here.</span>`;
 }
 
@@ -1020,8 +1033,7 @@ async function createOperationsItem(event) {
         client: els.operationsClient.value,
         slides: els.operationsSlides.value,
         category: els.operationsCategory.value,
-        deadlineText: els.operationsDeadline.value,
-        etaText: els.operationsEta.value,
+        dueText: els.operationsDeadline.value,
         assignedUserId: els.operationsAssignee.value,
         notes: els.operationsNotes.value
       })
@@ -1117,10 +1129,14 @@ async function handleOperationsClick(event) {
   }
 
   const row = button.closest("tr[data-ops-item-id]");
-  const itemId = row?.dataset.opsItemId;
+  const itemId = button.dataset.opsItemId || row?.dataset.opsItemId;
   if (!itemId) return;
   try {
-    if (action === "delete-item") {
+    if (action === "dismiss-approved") {
+      if (!confirm("Remove this completed job from QC approved? The designer's finished tracker row will be preserved.")) return;
+      adminOperations = await api(`/api/admin/operations/items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+      showToast("Completed QC card removed.");
+    } else if (action === "delete-item") {
       if (!confirm("Remove this request from the operations queue? An already-started tracker row will be preserved.")) return;
       adminOperations = await api(`/api/admin/operations/items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
       showToast("Queue item removed.");

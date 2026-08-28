@@ -16,7 +16,7 @@ test("tracker keeps breaks simple and highlights the clicked row", () => {
   assert.doesNotMatch(html, /breakStartSelect|breakEndSelect|plannedBreakBtn|plannedBreakLabel/);
   assert.doesNotMatch(html, /servicenow-validation/);
   assert.doesNotMatch(html, /Validate ServiceNow/);
-  assert.match(html, /20260820-operations-access-6/);
+  assert.match(html, /20260828-operations-qc-8/);
 
   assert.match(app, /let focusedTaskId = ""/);
   assert.match(app, /function focusTaskRow\(id\)/);
@@ -105,4 +105,30 @@ test("operations workspace has consistent status styling and a persistent theme 
   assert.match(styles, /\.qc-status-stack \{[\s\S]*?flex-direction: column;/);
   assert.match(styles, /#operationsQcRows td \{[\s\S]*?text-align: center;[\s\S]*?vertical-align: middle;/);
   assert.doesNotMatch(app, /designer-identity[^\n]+escapeHtml\(user\.username\)[^\n]+<\/span>/);
+});
+
+test("operations uses one combined DXB ETA or deadline field", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+
+  assert.match(html, /id="operationsDeadline"[^>]+placeholder="ETA \/ deadline \(DXB\)"/);
+  assert.doesNotMatch(html, /id="operationsEta"/);
+  assert.match(app, /data-ops-item-field="dueText"/);
+  assert.match(app, /function operationDueText\(item\)/);
+  assert.doesNotMatch(app, /data-ops-item-field="etaText"/);
+});
+
+test("operations prioritizes QC, handover, and dismissible approved cards", () => {
+  const app = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "public", "index.html"), "utf8");
+  const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+
+  const linksIndex = html.indexOf('id="operationsLinksTitle"');
+  const qcIndex = html.indexOf('id="qcQueueTitle"');
+  const handoverIndex = html.indexOf('id="handoverTitle"');
+  const approvedIndex = html.indexOf('id="approvedTitle"');
+  assert.ok(linksIndex < qcIndex && qcIndex < handoverIndex && handoverIndex < approvedIndex);
+  assert.match(app, /data-ops-action="dismiss-approved"/);
+  assert.match(app, /finished tracker row will be preserved/);
+  assert.match(styles, /\.approved-dismiss/);
 });

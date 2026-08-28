@@ -6,6 +6,7 @@ const dns = require("node:dns").promises;
 const net = require("node:net");
 const { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } = require("node:crypto");
 const { URL } = require("node:url");
+const { extractHttpUrls: toolExtractPastedUrls, normalizeHttpUrl: normalizeToolHttpUrl } = require("./public/tools/url-parser.js");
 
 const PORT = Number(process.env.PORT || 4173);
 const HOST = process.env.HOST || "127.0.0.1";
@@ -907,16 +908,24 @@ function toolDecodeHtml(value) {
 }
 
 function toolNormalizeUrl(raw, baseUrl = "") {
-  const value = toolDecodeHtml(raw).trim();
-  if (!value || /^(?:data|javascript|mailto|tel):/i.test(value) || value.startsWith("#")) return "";
-  try {
-    const normalized = baseUrl ? new URL(value, baseUrl) : new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`);
-    if (!["http:", "https:"].includes(normalized.protocol)) return "";
-    normalized.hash = "";
-    return normalized.href;
-  } catch {
-    return "";
+  return normalizeToolHttpUrl(raw, baseUrl);
+}
+
+function toolDelay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function toolLookupHost(hostname) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await dns.lookup(hostname, { all: true, verbatim: true });
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await toolDelay(120 * (attempt + 1));
+    }
   }
+  throw lastError;
 }
 
 function toolIsPrivateAddress(address) {
@@ -961,14 +970,63 @@ async function toolAssertPublicUrl(rawUrl) {
   }
   let addresses;
   try {
-    addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+    addresses = await toolLookupHost(hostname);
   } catch {
-    throw new Error(`Could not resolve ${hostname}.`);
+    throw new Error(`Could not find the host ${hostname} after retrying. Check the pasted address and try again.`);
   }
   if (!addresses.length || addresses.some((entry) => toolIsPrivateAddress(entry.address))) {
     throw new Error("Local or private network addresses are not allowed.");
   }
   return url;
+}
+
+async function toolFetchResponse(current, accept, extraHeaders) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TOOL_FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(current, {
+        method: "GET",
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
+          accept,
+          "accept-language": "en-US,en;q=0.9",
+          "cache-control": "no-cache",
+          pragma: "no-cache",
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+          ...extraHeaders
+        }
+      });
+      clearTimeout(timer);
+      if ([408, 425, 429, 500, 502, 503, 504].includes(response.status) && attempt === 0) {
+        if (response.body) await response.body.cancel();
+        await toolDelay(250);
+        continue;
+      }
+      return response;
+    } catch (error) {
+      clearTimeout(timer);
+      lastError = error;
+      if (attempt === 0) {
+        await toolDelay(250);
+        continue;
+      }
+    }
+  }
+
+  if (lastError?.name === "AbortError") throw new Error(`Timed out while loading ${current.hostname} after retrying.`);
+  throw new Error(`${current.hostname} could not be reached after retrying. The site may be temporarily unavailable or blocking server access.`);
+}
+
+function toolRemoteStatusError(response, current) {
+  if ([401, 403].includes(response.status)) {
+    return new Error(`${current.hostname} blocked automated access (HTTP ${response.status}). Try a direct image link or upload the source file instead.`);
+  }
+  if (response.status === 404) return new Error(`${current.hostname} returned HTTP 404 for this address.`);
+  if (response.status === 429) return new Error(`${current.hostname} is rate-limiting requests. Wait a moment and try again.`);
+  return new Error(`${current.hostname} returned HTTP ${response.status}.`);
 }
 
 async function toolFetchRemote(rawUrl, options = {}) {
@@ -978,27 +1036,7 @@ async function toolFetchRemote(rawUrl, options = {}) {
   const extraHeaders = options.headers && typeof options.headers === "object" ? options.headers : {};
 
   for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TOOL_FETCH_TIMEOUT_MS);
-    let response;
-    try {
-      response = await fetch(current, {
-        method: "GET",
-        redirect: "manual",
-        signal: controller.signal,
-        headers: {
-          accept,
-          "accept-language": "en-US,en;q=0.8",
-          "user-agent": "Mozilla/5.0 (compatible; DTP-Tracker-Image-Extractor/1.0)",
-          ...extraHeaders
-        }
-      });
-    } catch (error) {
-      clearTimeout(timer);
-      if (error.name === "AbortError") throw new Error(`Timed out while loading ${current.hostname}.`);
-      throw new Error(`Could not load ${current.href}.`);
-    }
-    clearTimeout(timer);
+    const response = await toolFetchResponse(current, accept, extraHeaders);
 
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
@@ -1007,7 +1045,7 @@ async function toolFetchRemote(rawUrl, options = {}) {
       current = await toolAssertPublicUrl(new URL(location, current).href);
       continue;
     }
-    if (!response.ok) throw new Error(`Remote site returned HTTP ${response.status}.`);
+    if (!response.ok) throw toolRemoteStatusError(response, current);
 
     const declaredLength = Number(response.headers.get("content-length") || 0);
     if (declaredLength > maxBytes) throw new Error(`Remote file is larger than ${Math.round(maxBytes / 1024 / 1024)} MB.`);
@@ -1175,7 +1213,16 @@ function toolImageItem(imageUrl, pageUrl) {
 }
 
 async function toolCrawlImages(payload) {
-  const seeds = [...new Set((Array.isArray(payload.urls) ? payload.urls : []).map((value) => toolNormalizeUrl(value)).filter(Boolean))];
+  const submitted = Array.isArray(payload.urls) ? payload.urls : [];
+  const seeds = [...new Set([
+    ...toolExtractPastedUrls(payload.rawInput || ""),
+    ...submitted.flatMap((value) => {
+      const extracted = toolExtractPastedUrls(value);
+      if (extracted.length) return extracted;
+      const normalized = toolNormalizeUrl(value);
+      return normalized ? [normalized] : [];
+    })
+  ])];
   if (!seeds.length) throw new Error("Add at least one public URL.");
   const includeCss = payload.includeCss !== false;
   const followLinks = Boolean(payload.followLinks);
@@ -1185,6 +1232,7 @@ async function toolCrawlImages(payload) {
   const seenStylesheets = new Set();
   const imagePages = new Map();
   const warnings = [];
+  let successfulPages = 0;
 
   while (queue.length && seenPages.size < pageLimit && imagePages.size < TOOL_MAX_IMAGES) {
     const entry = queue.shift();
@@ -1195,6 +1243,7 @@ async function toolCrawlImages(payload) {
       try {
         const safeImageUrl = await toolAssertPublicUrl(entry.url);
         imagePages.set(safeImageUrl.href, safeImageUrl.href);
+        successfulPages += 1;
       } catch (error) {
         warnings.push(`${entry.url}: ${error.message}`);
       }
@@ -1206,6 +1255,7 @@ async function toolCrawlImages(payload) {
         maxBytes: TOOL_MAX_HTML_BYTES,
         accept: "text/html,application/xhtml+xml,image/*,*/*;q=0.7"
       });
+      successfulPages += 1;
       if (response.contentType.startsWith("image/")) {
         imagePages.set(response.finalUrl, response.finalUrl);
         continue;
@@ -1248,10 +1298,15 @@ async function toolCrawlImages(payload) {
     }
   }
 
+  if (!imagePages.size && !warnings.length) {
+    warnings.push("No extractable images were found. This site may load images only after JavaScript; try a direct image link or upload the source file.");
+  }
+
   return {
     items: [...imagePages.entries()].map(([imageUrl, pageUrl]) => toolImageItem(imageUrl, pageUrl)),
     warnings: warnings.slice(0, 30),
     pagesScanned: seenPages.size,
+    successfulPages,
     limited: imagePages.size >= TOOL_MAX_IMAGES
   };
 }
@@ -1579,13 +1634,6 @@ function extractClientAfterCode(s, jobCode) {
   return "";
 }
 
-function normalizeHHMM(digits) {
-  const raw = String(digits || "");
-  if (raw.length === 3) return `${Number(raw.slice(0, 1))}:${raw.slice(1)}`;
-  if (raw.length === 4) return `${Number(raw.slice(0, 2))}:${raw.slice(2)}`;
-  return raw;
-}
-
 function cleanTimePiece(hour, minute, ap) {
   const h = Number(hour);
   const suffix = String(ap || "").toUpperCase();
@@ -1594,34 +1642,53 @@ function cleanTimePiece(hour, minute, ap) {
   return `${h}:${mm.padStart(2, "0")}${suffix}`;
 }
 
-function cleanDeadlineText(input) {
-  const txt = stripParens(input);
+const DEADLINE_DAY_SOURCE = "(Mon(?:day)?|Tue(?:s|sday)?|Wed(?:nesday)?|Thu(?:r|rs|rsday|ursday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)";
+const DEADLINE_TIME_SOURCE = "(?:(?<hour>\\d{1,2})(?:[:.](?<minute>\\d{2}))?|(?<compact>\\d{3,4}))\\s*(?<suffix>A\\.?\\s*M\\.?|P\\.?\\s*M\\.?|A|P)(?=$|[^A-Za-z])";
+
+function flattenDeadlineText(input) {
+  return String(input || "").replace(/[()[\]{}]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function normalizeMeridiem(value) {
+  return String(value || "").replace(/[^APM]/gi, "").toUpperCase().startsWith("P") ? "PM" : "AM";
+}
+
+function formatDeadlineMatch(match) {
+  if (!match?.groups) return "";
+  let hour = Number(match.groups.hour || 0);
+  let minute = Number(match.groups.minute || 0);
+  if (match.groups.compact) {
+    const compact = match.groups.compact;
+    hour = Number(compact.slice(0, -2));
+    minute = Number(compact.slice(-2));
+  }
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return "";
+  const time = cleanTimePiece(hour, minute ? String(minute) : "", normalizeMeridiem(match.groups.suffix));
+  const day = cleanDayToken(match.groups.day || "");
+  return day ? `${day} ${time}` : time;
+}
+
+function matchDeadlineText(input) {
+  const txt = flattenDeadlineText(input);
   if (!txt) return "";
+  if (/\bASAP\b/i.test(txt)) return "ASAP";
 
-  const withDay = txt.match(/\b(Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat|Sun)\b[^\dA-Za-z]*((\d{1,2})(?::(\d{2}))?|(\d{3,4}))\s*(AM|PM)\b/i);
-  if (withDay) {
-    const day = cleanDayToken(withDay[1]);
-    const ap = withDay[6].toUpperCase();
-    if (withDay[5]) return `${day} ${normalizeHHMM(withDay[5])}${ap}`;
-    return `${day} ${cleanTimePiece(withDay[3], withDay[4], ap)}`;
-  }
+  const withDay = txt.match(new RegExp(`\\b(?<day>${DEADLINE_DAY_SOURCE})\\b[^\\dA-Za-z]*${DEADLINE_TIME_SOURCE}`, "i"));
+  const dayValue = formatDeadlineMatch(withDay);
+  if (dayValue) return dayValue;
 
-  const timeOnly = txt.match(/\b((\d{1,2})(?::(\d{2}))?|(\d{3,4}))\s*(AM|PM)\b/i);
-  if (timeOnly) {
-    const ap = timeOnly[5].toUpperCase();
-    if (timeOnly[4]) return `${normalizeHHMM(timeOnly[4])}${ap}`;
-    return cleanTimePiece(timeOnly[2], timeOnly[3], ap);
-  }
+  const timeOnly = txt.match(new RegExp(`\\b${DEADLINE_TIME_SOURCE}`, "i"));
+  return formatDeadlineMatch(timeOnly);
+}
 
-  return txt.toUpperCase();
+function cleanDeadlineText(input) {
+  const txt = flattenDeadlineText(input);
+  if (!txt) return "";
+  return matchDeadlineText(txt) || txt.toUpperCase();
 }
 
 function extractDeadlineLike(input) {
-  const txt = stripParens(input);
-  const withDay = txt.match(/\b(Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat|Sun)\b[^\dA-Za-z]*((\d{1,2})(:\d{2})?|(\d{3,4}))\s*(AM|PM)\b/i);
-  if (withDay) return withDay[0];
-  const timeOnly = txt.match(/\b((\d{1,2})(:\d{2})?|(\d{3,4}))\s*(AM|PM)\b/i);
-  return timeOnly ? timeOnly[0] : "";
+  return matchDeadlineText(input);
 }
 
 function cleanJobCode(s) {
@@ -1642,7 +1709,7 @@ function parseJobInput(raw) {
     parsed.requestNo = cleanJobCode(parts[0] || "");
     parsed.client = parts[1] || "";
     parsed.slides = extractFirstNumber(parts[2] || "");
-    parsed.deadlineText = cleanDeadlineText(parts.slice(3).join(" ") || "");
+    parsed.deadlineText = extractDeadlineLike(parts.slice(3).join(" "));
     return parsed;
   }
 
@@ -3429,8 +3496,10 @@ async function handleApi(req, res, url) {
       client: body.client,
       slides: body.slides,
       category: body.category,
-      deadlineText: body.deadlineText,
-      etaText: body.etaText,
+      deadlineText: Object.prototype.hasOwnProperty.call(body, "dueText")
+        ? body.dueText
+        : (body.deadlineText || body.etaText),
+      etaText: Object.prototype.hasOwnProperty.call(body, "dueText") ? "" : body.etaText,
       notes: body.notes,
       assignedUserId,
       lane: assignedUserId ? "next" : "handover",
@@ -3492,6 +3561,10 @@ async function handleApi(req, res, url) {
           other.updatedAt = nowIso();
         }
       } else {
+        if (Object.prototype.hasOwnProperty.call(body, "dueText")) {
+          item.deadlineText = cleanDeadlineText(body.dueText);
+          item.etaText = "";
+        }
         const editableFields = ["client", "slides", "category", "deadlineText", "etaText", "notes"];
         for (const field of editableFields) {
           if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
@@ -3557,17 +3630,23 @@ async function handleApi(req, res, url) {
   }
 
   if (operationsItemMatch && req.method === "DELETE") {
-    if (!adminCan(authUser, "coordinate")) return json(res, 403, { error: "Coordinator access required." });
+    if (authUser.role !== "admin") return json(res, 403, { error: "Admin access required." });
     const id = decodeURIComponent(operationsItemMatch[1]);
     const store = operationsStore(rootDb);
     const item = store.workItems.find((candidate) => candidate.id === id);
     if (!item) return json(res, 404, { error: "Operations item not found." });
+    const canDelete = item.lane === "approved"
+      ? adminCan(authUser, "review") || adminCan(authUser, "coordinate")
+      : adminCan(authUser, "coordinate");
+    if (!canDelete) {
+      return json(res, 403, { error: item.lane === "approved" ? "QC reviewer or coordinator access required." : "Coordinator access required." });
+    }
     const task = item.taskId ? rootDb.tasks.find((candidate) => candidate.id === item.taskId) : null;
     if (task && task.operationsManaged && !task.startAt && !task.finishedAt && !taskIsActiveAnywhere(rootDb, task.id)) {
       rootDb.tasks = rootDb.tasks.filter((candidate) => candidate.id !== task.id);
     }
     store.workItems = store.workItems.filter((candidate) => candidate.id !== id);
-    audit(rootDb, "operations.itemDelete", { adminId: authUser.id, itemId: id });
+    audit(rootDb, item.lane === "approved" ? "operations.approvedDismiss" : "operations.itemDelete", { adminId: authUser.id, itemId: id });
     await saveDb(rootDb);
     return json(res, 200, serializeAdminOperations(rootDb, authUser));
   }
