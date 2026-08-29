@@ -128,10 +128,18 @@ test("operations prioritizes QC, handover, and dismissible approved cards", () =
   const styles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
 
   const linksIndex = html.indexOf('id="operationsLinksTitle"');
+  const summaryIndex = html.indexOf('aria-label="Team operations summary"');
   const qcIndex = html.indexOf('id="qcQueueTitle"');
   const handoverIndex = html.indexOf('id="handoverTitle"');
+  const designersIndex = html.indexOf('id="teamBoardTitle"');
   const approvedIndex = html.indexOf('id="approvedTitle"');
-  assert.ok(linksIndex < qcIndex && qcIndex < handoverIndex && handoverIndex < approvedIndex);
+  assert.ok(
+    linksIndex < summaryIndex &&
+      summaryIndex < qcIndex &&
+      qcIndex < handoverIndex &&
+      handoverIndex < designersIndex &&
+      designersIndex < approvedIndex
+  );
   assert.match(app, /data-ops-action="dismiss-approved"/);
   assert.match(app, /finished tracker row will be preserved/);
   assert.match(styles, /\.approved-dismiss/);
