@@ -64,6 +64,10 @@ test("admins get a dedicated centralized operations workspace", () => {
   assert.match(html, /Handover and next jobs/);
   assert.match(html, /Quality check/);
   assert.match(html, /QC approved/);
+  assert.ok(
+    html.indexOf("Designers and shifts") < html.indexOf("QC approved"),
+    "QC approved should remain the final Operations section after designer status"
+  );
   assert.match(app, /async function openOperationsWorkspace\(\)/);
   assert.match(app, /\/api\/admin\/operations/);
   assert.match(app, /Designer workload:/);
