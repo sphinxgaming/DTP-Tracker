@@ -1939,7 +1939,9 @@ function applyCountableOvertimeMarkers(tasks) {
 }
 
 function isCountableOvertime(seconds) {
-  return Math.max(0, Number(seconds) || 0) >= MINIMUM_COUNTABLE_OVERTIME_SECONDS;
+  // Match the whole-minute rounding used by the tracker and Word timesheet.
+  const displayedMinutes = Math.round(Math.max(0, Math.floor(Number(seconds) || 0)) / 60);
+  return displayedMinutes >= MINIMUM_COUNTABLE_OVERTIME_SECONDS / 60;
 }
 
 function overtimeDateWorked(dateWorked, overtime) {

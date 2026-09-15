@@ -16,7 +16,7 @@ test("tracker keeps breaks simple and highlights the clicked row", () => {
   assert.doesNotMatch(html, /breakStartSelect|breakEndSelect|plannedBreakBtn|plannedBreakLabel/);
   assert.doesNotMatch(html, /servicenow-validation/);
   assert.doesNotMatch(html, /Validate ServiceNow/);
-  assert.match(html, /20260828-operations-qc-8/);
+  assert.match(html, /src="\/app\.js\?v=[^\"]+"/);
 
   assert.match(app, /let focusedTaskId = ""/);
   assert.match(app, /function focusTaskRow\(id\)/);
