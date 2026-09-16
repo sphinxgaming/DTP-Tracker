@@ -1221,12 +1221,17 @@ body.auth-locked .auth-gate {
 }
 
 body:has(.admin-workspace:not([hidden])) {
-  background: var(--surface);
+  background: var(--bg);
 }
 
 .admin-workspace {
-  width: min(1800px, calc(100% - 64px));
-  margin: 32px auto 56px;
+  width: min(1700px, calc(100% - 32px));
+  margin: 28px auto 56px;
+  padding: 28px 32px 38px;
+  background: var(--surface);
+  border-top: 4px solid var(--fti-blue);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
   line-height: 1.5;
   letter-spacing: 0;
 }
@@ -2146,8 +2151,9 @@ body:has(.admin-workspace:not([hidden])) .auth-bar button.active {
   }
 
   .admin-workspace {
-    width: calc(100% - 32px);
-    margin-top: 24px;
+    width: calc(100% - 24px);
+    margin: 16px auto 32px;
+    padding: 20px 16px 28px;
   }
 
   .operations-heading,
